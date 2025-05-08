@@ -1,0 +1,13 @@
+jax[cuda12]
+flax[all]
+tqdm
+datasets
+wandb
+hydra-core
+lief
+torch
+torchmetrics
+transformers
+orbax-checkpoint
+tensorflow-cpu
+tensorflow-serving-api

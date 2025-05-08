@@ -1,0 +1,24 @@
+defaults:
+  - _self_
+  - connections: all
+  - model: default
+work_dir: ${hydra:runtime.cwd}
+tokenizer: ${work_dir}/tokenizer.json
+batch_size: 32
+label: instruction
+dataset: llvm-test-suite-gtirb
+test_dataset: llvm-test-suite-gtirb
+gt: ${work_dir}/data/results/${test_dataset}
+input: ${work_dir}/data/stats/${test_dataset}
+process: 24
+thread: 1
+prune: false
+model_id: null
+tags:
+  - ${label}
+  - ${dataset}
+  - ${model.attention}
+  - ${connections.name}
+  - ${model.window_size}w
+  - ${model.hidden_size}h
+  - ${model.layers}l

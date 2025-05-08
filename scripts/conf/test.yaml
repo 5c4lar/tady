@@ -1,0 +1,25 @@
+defaults:
+  - _self_
+  - connections: all
+  - model: default
+work_dir: ${hydra:runtime.cwd}
+batch_size: 32
+label: instruction
+dataset: llvm-test-suite-gtirb
+test_dataset: llvm-test-suite-gtirb
+dir: ${work_dir}/data/bin/${test_dataset}
+output: ${work_dir}/data/results/${test_dataset}
+process: 24
+thread: 1
+host: localhost
+port: 8500
+model_id: null
+threshold: 0.5
+tags:
+  - ${label}
+  - ${dataset}
+  - ${model.attention}
+  - ${connections.name}
+  - ${model.window_size}w
+  - ${model.hidden_size}h
+  - ${model.layers}l

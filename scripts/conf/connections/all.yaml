@@ -1,0 +1,6 @@
+name: all
+setting:
+  must_transfer: [0, 1]
+  may_transfer: [1, 3]
+  next: [3, 4]
+  overlapping: [4, 18]

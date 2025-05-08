@@ -1,0 +1,18 @@
+defaults:
+  - _self_
+  - connections: all
+  - model: default
+work_dir: ${hydra:runtime.cwd}
+dataset: llvm-test-suite-gtirb
+config: ${work_dir}/models/config
+label: instruction
+checkpoint: ${work_dir}/models/orbax
+output: ${work_dir}/models/tf_models
+tags:
+  - ${label}
+  - ${dataset}
+  - ${model.attention}
+  - ${connections.name}
+  - ${model.window_size}w
+  - ${model.hidden_size}h
+  - ${model.layers}l

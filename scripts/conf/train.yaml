@@ -1,0 +1,27 @@
+defaults:
+  - _self_
+  - connections: all
+  - model: default
+work_dir: ${hydra:runtime.cwd}
+dataset: llvm-test-suite-gtirb
+dataset_dir: ${work_dir}/data/processed/${dataset}
+processed: true
+tokenizer: ${work_dir}/tokenizer.json
+batch_size: 16
+config: ${work_dir}/models/config
+label: instruction
+checkpoint: ${work_dir}/models/orbax
+wandb:
+    project: disassemble_reproduce
+process: 24
+epoch: 1
+dataset_format: parquet # datasets or parquet
+
+tags:
+  - ${label}
+  - ${dataset}
+  - ${model.attention}
+  - ${connections.name}
+  - ${model.window_size}w
+  - ${model.hidden_size}h
+  - ${model.layers}l
