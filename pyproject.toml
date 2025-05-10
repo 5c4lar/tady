@@ -1,0 +1,65 @@
+[build-system]
+requires = [
+    "setuptools>=64.0.0",
+    "scikit-build-core",
+    "cmake>=3.18.0",
+    "ninja",
+    "pybind11>=2.9.0",
+    "wheel",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "tady"
+version = "0.1.0"
+description = "Machine learning-based binary analysis toolkit"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Tady Team"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "jax[cuda12]",
+    "flax[all]",
+    "tqdm",
+    "datasets",
+    "wandb",
+    "hydra-core",
+    "lief",
+    "torch",
+    "torchmetrics",
+    "transformers",
+    "orbax-checkpoint",
+    "tensorflow-cpu",
+    "tensorflow-serving-api",
+    "numpy",
+]
+
+[project.urls]
+Repository = "https://github.com/yourusername/tady"
+
+[tool.setuptools]
+package-dir = {"" = "python"}
+
+[tool.scikit-build-core]
+cmake.build-type = "Debug"
+wheel.install-dir = "python/tady"
+editable.mode = "inplace"
+editable.rebuild = true
+install.strip = false
+
+
+[tool.setuptools.packages.find]
+where = ["python"]
+include = ["tady*"]

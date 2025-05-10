@@ -29,15 +29,19 @@ def chunk_data(byte_sequence, seq_len, window_size, gt=None):
         return byte_chunks, labels, masks
     else:
         return byte_chunks, masks
-
-def preprocess_binary(file_path, seq_len=8192, window_size=64):
-    # Load the binary file
+    
+def load_text(file_path):
     binary = lief.parse(str(file_path))
     text_section = binary.get_section(".text")
     base_addr = text_section.virtual_address
-    text_array = np.frombuffer(text_section.content, dtype=np.uint8)
-    byte_chunks, masks = chunk_data(text_array, seq_len, window_size)
+    text_bytes = bytes(text_section.content)
+    text_array = np.frombuffer(text_bytes, dtype=np.uint8)
     use_64_bit = binary.header.machine_type == lief.ELF.ARCH.X86_64
+    return text_array, use_64_bit, base_addr
+
+def preprocess_binary(file_path, seq_len=8192, window_size=64):
+    text_array, use_64_bit, base_addr = load_text(file_path)
+    byte_chunks, masks = chunk_data(text_array, seq_len, window_size)
     return byte_chunks, masks, use_64_bit, base_addr
 
 if __name__ == "__main__":

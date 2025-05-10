@@ -15,7 +15,7 @@ from transformers.modeling_flax_utils import ACT2FN
 from transformers.modeling_rope_utils import rope_config_validation
 
 from tady.model.attention import get_attention, get_attention_lite
-from tady.model.disasm_jax import preprocess_binary
+from tady.model.disasm_jax import DisasmJax
 
 
 class TAGNNConfig(PretrainedConfig):
@@ -715,6 +715,7 @@ class FlaxLlamaForBinaryTokenClassification(nnx.Module):
         self.config = config
         self.dtype = dtype
         self.hidden_size = self.config.hidden_size
+        self.disassembler = DisasmJax()
         self.model = FlaxLlamaModule(config, dtype=dtype, rngs=rngs)
         if getattr(config, "classifier_dropout", None) is not None:
             classifier_dropout = config.classifier_dropout
@@ -738,8 +739,8 @@ class FlaxLlamaForBinaryTokenClassification(nnx.Module):
             use_64_bit = jnp.ones(
                 byte_sequence.shape[0], dtype=jnp.bool_)
         batch_size, seq_len = byte_sequence.shape[:2]
-        input_ids, connections, instr_len = jax.vmap(
-            preprocess_binary, in_axes=(0, 0))(byte_sequence, use_64_bit)
+        input_ids, connections, instr_len = nnx.vmap(
+            self.disassembler, in_axes=(0, 0))(byte_sequence, use_64_bit)
         idx = jnp.arange(input_ids.shape[-1], dtype=jnp.int32)[None, None, :]
         token_mask = jnp.where(
             instr_len[:, :, None] > idx, True, False).astype(jnp.bool_)

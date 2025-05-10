@@ -1,7 +1,5 @@
-import argparse
 import json
 import pathlib
-import subprocess
 from multiprocessing.pool import ThreadPool as Pool
 import grpc
 import hydra
@@ -11,7 +9,7 @@ from tqdm import tqdm
 from tady.utils.loader import preprocess_binary
 import tensorflow as tf
 import numpy as np
-from typing import List, Dict, Tuple
+from typing import List
 
 
 def send_request(stub, model, byte_chunks, use_64_bit):

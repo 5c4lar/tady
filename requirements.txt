@@ -11,3 +11,6 @@ transformers
 orbax-checkpoint
 tensorflow-cpu
 tensorflow-serving-api
+pybind11
+numpy
+scikit-build-core
