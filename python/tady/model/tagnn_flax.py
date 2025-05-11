@@ -739,7 +739,7 @@ class FlaxLlamaForBinaryTokenClassification(nnx.Module):
             use_64_bit = jnp.ones(
                 byte_sequence.shape[0], dtype=jnp.bool_)
         batch_size, seq_len = byte_sequence.shape[:2]
-        input_ids, connections, instr_len = nnx.vmap(
+        input_ids, connections, instr_len, _ = nnx.vmap(
             self.disassembler, in_axes=(0, 0))(byte_sequence, use_64_bit)
         idx = jnp.arange(input_ids.shape[-1], dtype=jnp.int32)[None, None, :]
         token_mask = jnp.where(

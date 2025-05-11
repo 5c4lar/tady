@@ -18,3 +18,4 @@ models/
 outputs/
 wandb/
 .cache/
+archive/

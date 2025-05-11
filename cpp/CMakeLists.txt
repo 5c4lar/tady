@@ -3,21 +3,21 @@ include(FetchContent)
 set(BOOST_INCLUDE_LIBRARIES graph)
 set(BOOST_ENABLE_CMAKE ON)
 
-# find_package(Boost QUIET COMPONENTS ${BOOST_INCLUDE_LIBRARIES})
-# if(NOT Boost_FOUND)
-#   message(STATUS "Boost not found, using FetchContent to download it")
-#   FetchContent_Declare(
-#     Boost
-#     GIT_REPOSITORY https://github.com/boostorg/boost.git
-#     GIT_PROGRESS TRUE
-#     GIT_TAG boost-1.83.0
-#   )
-#   FetchContent_MakeAvailable(Boost)
-# else()
-#   message(STATUS "Reusing system Boost")
-# endif()
+find_package(Boost QUIET COMPONENTS ${BOOST_INCLUDE_LIBRARIES})
+if(NOT Boost_FOUND)
+  message(STATUS "Boost not found, using FetchContent to download it")
+  FetchContent_Declare(
+    Boost
+    GIT_REPOSITORY https://github.com/boostorg/boost.git
+    GIT_PROGRESS TRUE
+    GIT_TAG boost-1.83.0
+  )
+  FetchContent_MakeAvailable(Boost)
+else()
+  message(STATUS "Reusing system Boost")
+endif()
 
-# include_directories(${Boost_INCLUDE_DIRS})
+include_directories(${Boost_INCLUDE_DIRS})
 
 # Pybind11
 find_package(Python3 COMPONENTS Interpreter Development)
@@ -35,7 +35,7 @@ else()
 endif()
 
 
-# set(LLVM_LINK_LLVM_DYLIB ON)
+set(LLVM_LINK_LLVM_DYLIB ON)
 find_package(LLVM REQUIRED CONFIG)
 if(LLVM_FOUND)
   message(STATUS "Using system LLVM ${LLVM_PACKAGE_VERSION}")
@@ -44,27 +44,23 @@ if(LLVM_FOUND)
 
   # Add definitions for shared libraries
   add_definitions(${LLVM_DEFINITIONS})
-  
+  # include_directories(AFTER ${LLVM_INCLUDE_DIRS})
 else()
   message(STATUS "LLVM not found")
 endif()
 
-add_library(llvm_disasm STATIC src/llvm_disasm.cc)
-
-target_include_directories(llvm_disasm PRIVATE ${LLVM_INCLUDE_DIRS})
-
 include_directories(include)
 # Rename the module to tady_cpp to match Python import conventions
-pybind11_add_module(tady_cpp src/graph.cc src/disasm.cc src/tady.cc)
-# target_link_options(tady_cpp PRIVATE -static-libstdc++)
-target_link_libraries(tady_cpp PRIVATE LLVM llvm_disasm)
+pybind11_add_module(tady_cpp src/tady.cc)
+target_link_libraries(tady_cpp PRIVATE LLVM)
+
 
 # Install the module to the correct location
 if(SKBUILD_CORE OR SKBUILD)
     # When using scikit-build-core or scikit-build, install to the current directory as
     # CMAKE_INSTALL_PREFIX will be set to the proper Python package directory
     install(TARGETS tady_cpp DESTINATION ".")
-    message(STATUS "Installing tady_cpp module to: ${CMAKE_INSTALL_PREFIX}")
+    message(STATUS "Installing tady_cpp module to: ${SKBUILD_PROJECT_NAME}")
 else()
     # For direct CMake builds, use the Python installation directory
     install(TARGETS tady_cpp DESTINATION ${PYTHON_INSTALL_DIR})

@@ -2,8 +2,6 @@
 requires = [
     "setuptools>=64.0.0",
     "scikit-build-core",
-    "cmake>=3.18.0",
-    "ninja",
     "pybind11>=2.9.0",
     "wheel",
 ]
@@ -52,12 +50,9 @@ Repository = "https://github.com/yourusername/tady"
 [tool.setuptools]
 package-dir = {"" = "python"}
 
-[tool.scikit-build-core]
-cmake.build-type = "Debug"
-wheel.install-dir = "python/tady"
-editable.mode = "inplace"
-editable.rebuild = true
-install.strip = false
+[tool.scikit-build]
+cmake.build-type = "Release"
+
 
 
 [tool.setuptools.packages.find]

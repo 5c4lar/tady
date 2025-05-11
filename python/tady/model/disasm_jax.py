@@ -761,7 +761,7 @@ class DisasmJax(nnx.Module):
         disasm = nnx.vmap(self.disasm, in_axes=(0, None))(instr_bytes, use_64_bit)
         flow_kind = nnx.vmap(map_opcode_into_control_flow_kind)(opcode_modrm)
         instruction, control_flow, instr_len = parse_disasm(instr_bytes, disasm, flow_kind)
-        return instruction, control_flow, instr_len
+        return instruction, control_flow, instr_len, flow_kind
 
 
 def get_byte_at(code_bytes, position):
