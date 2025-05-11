@@ -292,10 +292,9 @@ class PostDominatorTree {
   }
 
 public:
-  PostDominatorTree(size_t n, const int32_t *e, const float *w, const bool *cf)
+  PostDominatorTree(size_t n, const int32_t *e, const bool *cf = nullptr)
       : num_nodes(n), edges(e), weights(n + 1), cf_status(cf), ipdom(n),
         cfg(n) {
-    std::copy(w, w + n, weights.begin());
     for (size_t i = 0; i < n; ++i) {
       for (size_t j = 0; j < 2; ++j) {
         if (edges[i * 2 + j] != -1) {
@@ -305,23 +304,31 @@ public:
     }
     std::tie(dtree, exit_node) = build_reverse_dom_tree(cfg);
   }
-  PostDominatorTree(py::array_t<int32_t> edges, py::array_t<float> weights,
-                    py::array_t<bool> cf_status)
-      : PostDominatorTree(edges.shape(0), edges.data(), weights.data(),
-                          cf_status.data()) {
+  PostDominatorTree(py::array_t<int32_t> edges, py::array_t<bool> cf_status)
+      : PostDominatorTree(edges.shape(0), edges.data(), cf_status.data()) {
     // Constructor body is now empty as initialization is done via delegation
   }
-  py::array_t<int32_t> prune() {
-    propagate_weights(dtree, exit_node);
-    auto pruned_nodes = prune_tree();
-    return py::array_t<int32_t>(pruned_nodes.size(), pruned_nodes.data());
-  }
+
   py::array_t<int32_t> get_ipdom() {
     return py::array_t<int32_t>(num_nodes, ipdom.data());
   }
 
+  py::array_t<int32_t> prune(py::array_t<float> weights) {
+    if (weights.size() != num_nodes) {
+      throw std::invalid_argument("weights size must match num_nodes");
+    }
+    std::copy(weights.data(), weights.data() + num_nodes, this->weights.begin());
+    propagate_weights(dtree, exit_node);
+    auto pruned_nodes = prune_tree();
+    return py::array_t<int32_t>(pruned_nodes.size(), pruned_nodes.data());
+  }
+
   // Return Detect errors as dict of sets
-  py::dict get_errors() {
+  py::dict get_errors(py::array_t<float> weights) {
+    if (weights.size() != num_nodes) {
+      throw std::invalid_argument("weights size must match num_nodes");
+    }
+    std::copy(weights.data(), weights.data() + num_nodes, this->weights.begin());
     auto errors = detect_errors();
     py::dict result;
     for (const auto &[key, value] : errors) {

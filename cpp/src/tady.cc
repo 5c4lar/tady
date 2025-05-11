@@ -8,9 +8,8 @@ PYBIND11_MODULE(tady_cpp, m) {
   m.doc() = "Tady: A Neural Disassembler without Consistency Violations - "
             "Custom Graph Version";
   py::class_<PostDominatorTree>(m, "PostDominatorTree")
-      .def(py::init<py::array_t<int32_t>, py::array_t<float>,
-                    py::array_t<bool>>(),
-           py::arg("edges"), py::arg("weights"), py::arg("cf"))
+      .def(py::init<py::array_t<int32_t>, py::array_t<bool>>(),
+           py::arg("edges"), py::arg("cf_status"))
       .def("prune", &PostDominatorTree::prune)
       .def("get_ipdom", &PostDominatorTree::get_ipdom)
       .def("get_errors", &PostDominatorTree::get_errors);
