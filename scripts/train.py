@@ -271,10 +271,13 @@ def main(args: DictConfig):
         rngs = nnx.Rngs(dropout=jax.random.key(1), carry=jax.random.key(2))
         best_eval_acc = 0
         config.save_pretrained(config_path.absolute())
+        train_iter = iter(train_dataloader)
+        val_iter = iter(val_dataloader)
         for epoch in ebar:
-            tbar = tqdm.tqdm(train_dataloader, position=1,
+            tbar = tqdm.tqdm(range(len(train_ds)), position=1,
                              leave=False, total=len(train_ds))
-            for i, batch in enumerate(tbar):
+            for _ in tbar:
+                batch = next(train_iter)
                 # for key, value in batch.items():
                 #     print(key, value.shape)
                 train_step(model, optimizer, batch,
@@ -287,7 +290,8 @@ def main(args: DictConfig):
                 global_step += 1
                 train_metrics.reset()
                 # if (global_step % args.checkpoint_steps) == 0:
-            for val_batch in val_dataloader:
+            for _ in range(len(test_ds)):
+                val_batch = next(val_iter)
                 eval_step(model, val_batch, eval_metrics, forward_fn)
                 metrics_dict = {f"val_{name}": f"{metric:.4f}" for name,
                                 metric in eval_metrics.compute().items()}
