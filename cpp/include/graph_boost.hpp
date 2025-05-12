@@ -23,6 +23,10 @@ class PostDominatorTree {
   BiDiGraph dtree;
   uint32_t exit_node;
   std::vector<int32_t> ipdom;
+  typedef boost::graph_traits<BiDiGraph>::vertex_descriptor Vertex;
+  typedef boost::property_map<BiDiGraph, boost::vertex_index_t>::type IndexMap;
+  typedef boost::iterator_property_map<std::vector<Vertex>::iterator, IndexMap>
+      PredMap;
 
   uint32_t add_exit_node(BiDiGraph &cfg) {
     // Calculate SCCs and component mapping
@@ -78,12 +82,6 @@ class PostDominatorTree {
   std::tuple<BiDiGraph, uint32_t> build_reverse_dom_tree(BiDiGraph &cfg) {
     auto exit_v = add_exit_node(cfg); // Renamed 'exit' to 'exit_v'
     auto reverse_graph = boost::make_reverse_graph(cfg);
-    typedef boost::graph_traits<BiDiGraph>::vertex_descriptor Vertex;
-    typedef boost::property_map<BiDiGraph, boost::vertex_index_t>::type
-        IndexMap;
-    typedef boost::iterator_property_map<std::vector<Vertex>::iterator,
-                                         IndexMap>
-        PredMap;
     std::vector<Vertex> domTreePredVector = std::vector<Vertex>(
         boost::num_vertices(reverse_graph), BiDiGraph::null_vertex());
     IndexMap indexMap(get(boost::vertex_index, reverse_graph));
@@ -95,11 +93,8 @@ class PostDominatorTree {
     BiDiGraph dtree_local =
         BiDiGraph(boost::num_vertices(reverse_graph)); // Renamed dtree
     for (auto v : boost::make_iterator_range(boost::vertices(reverse_graph))) {
-      // Removed: dtree_local[v] = cfg[v]; as it's likely a no-op or incorrect
       auto pred = domTreePredMap[v];
       if (pred != BiDiGraph::null_vertex()) {
-        // Ensure v and pred are valid indices for ipdom, assuming they fit
-        // int32_t
         if (static_cast<size_t>(v) < ipdom.size()) {
           ipdom[v] = static_cast<int32_t>(pred);
         }
@@ -317,7 +312,8 @@ public:
     if (weights.size() != num_nodes) {
       throw std::invalid_argument("weights size must match num_nodes");
     }
-    std::copy(weights.data(), weights.data() + num_nodes, this->weights.begin());
+    std::copy(weights.data(), weights.data() + num_nodes,
+              this->weights.begin());
     propagate_weights(dtree, exit_node);
     auto pruned_nodes = prune_tree();
     return py::array_t<int32_t>(pruned_nodes.size(), pruned_nodes.data());
@@ -328,7 +324,8 @@ public:
     if (weights.size() != num_nodes) {
       throw std::invalid_argument("weights size must match num_nodes");
     }
-    std::copy(weights.data(), weights.data() + num_nodes, this->weights.begin());
+    std::copy(weights.data(), weights.data() + num_nodes,
+              this->weights.begin());
     auto errors = detect_errors();
     py::dict result;
     for (const auto &[key, value] : errors) {

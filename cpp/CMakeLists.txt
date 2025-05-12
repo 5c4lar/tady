@@ -44,7 +44,7 @@ if(LLVM_FOUND)
 
   # Add definitions for shared libraries
   add_definitions(${LLVM_DEFINITIONS})
-  # include_directories(AFTER ${LLVM_INCLUDE_DIRS})
+# include_directories(AFTER ${LLVM_INCLUDE_DIRS})
 else()
   message(STATUS "LLVM not found")
 endif()
@@ -53,6 +53,7 @@ include_directories(include)
 # Rename the module to tady_cpp to match Python import conventions
 pybind11_add_module(tady_cpp src/tady.cc)
 target_link_libraries(tady_cpp PRIVATE LLVM)
+target_compile_options(tady_cpp PRIVATE -static-libstdc++)
 
 
 # Install the module to the correct location

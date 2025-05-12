@@ -106,7 +106,7 @@ public:
     return pcrel + immediate;
   }
 
-  std::tuple<py::array_t<uint8_t>, py::array_t<int32_t>>
+  std::tuple<py::array_t<uint8_t>, py::array_t<uint8_t>, py::array_t<int32_t>, py::array_t<int32_t>>
   superset_disasm(py::array_t<uint8_t> Bytes, bool is64) {
     ArrayRef<uint8_t> Buffer =
         ArrayRef<uint8_t>(Bytes.data(), Bytes.data() + Bytes.size());
@@ -114,19 +114,32 @@ public:
     size_t num_bytes = Buffer.size();
     py::ssize_t n_rows = static_cast<py::ssize_t>(num_bytes);
 
-    // instrlen_flowkind: [instr_len, flow_kind], Shape: (n, 2)
-    py::array_t<uint8_t> instrlen_flowkind({n_rows, 2L});
+    // instrlen: [instr_len], Shape: (n)
+    py::array_t<uint8_t> instrlen(n_rows);
 
-    // control_flow: next_addr, target_addr, Shape: (n, 2)
-    py::array_t<int32_t> control_flow({n_rows, 2L});
+    // flow_kind: [flow_kind], Shape: (n)
+    py::array_t<uint8_t> flow_kind(n_rows);
+
+    // control_flow: must_transfer(1), may_transfer(2), next_addr(1), Shape: (n,
+    // 4)
+    py::array_t<int32_t> control_flow({n_rows, 4L});
+
+    // successors: 2 possible successors, Shape: (n, 2)
+    py::array_t<int32_t> successors({n_rows, 2L});
 
     // Early exit if buffer is empty, loop won't run, empty arrays are returned.
     if (num_bytes == 0) {
-      return std::make_tuple(instrlen_flowkind, control_flow);
+      return std::make_tuple(instrlen, flow_kind, control_flow, successors);
     }
 
-    auto instrlen_flowkind_ptr = instrlen_flowkind.mutable_data();
+    auto instrlen_ptr = instrlen.mutable_data();
+    auto flow_kind_ptr = flow_kind.mutable_data();
     auto control_flow_ptr = control_flow.mutable_data();
+    auto successors_ptr = successors.mutable_data();
+    memset(instrlen_ptr, 0, instrlen.size() * sizeof(uint8_t));
+    memset(flow_kind_ptr, 0, flow_kind.size() * sizeof(uint8_t));
+    memset(control_flow_ptr, -1, control_flow.size() * sizeof(int32_t));
+    memset(successors_ptr, -1, successors.size() * sizeof(int32_t));
     auto mode = is64 ? MODE_64BIT : MODE_32BIT;
 
     for (size_t i = 0; i < num_bytes; ++i) {
@@ -142,36 +155,46 @@ public:
         const auto &insn = *insn_opt;
 
         // Populate instrlen_flowkind: [length, flow_kind]
-        instrlen_flowkind_ptr[current_row_idx * 2 + 0] =
-            static_cast<uint8_t>(insn.length);
-        instrlen_flowkind_ptr[current_row_idx * 2 + 1] = flow_kind_for_array;
-
-        // Populate control_flow: [next_addr, target_addr]
-        // insn.readerCursor is the offset of the next instruction from the
-        // start of the buffer.
-        control_flow_ptr[current_row_idx * 2 + 0] =
-            static_cast<int32_t>(insn.readerCursor);
-
+        instrlen_ptr[current_row_idx] = static_cast<uint8_t>(insn.length);
+        flow_kind_ptr[current_row_idx] = flow_kind_for_array;
         auto target_opt = get_branch_target(insn);
-        if (target_opt) {
-          control_flow_ptr[current_row_idx * 2 + 1] =
-              static_cast<int32_t>(*target_opt);
-        } else {
-          control_flow_ptr[current_row_idx * 2 + 1] =
-              -1; // No target or not a branch
+        int32_t branch_target = target_opt ? static_cast<int32_t>(*target_opt) : -1;
+        branch_target = (branch_target >= num_bytes || branch_target < 0) ? -1 : branch_target;
+        // Populate control_flow: [must_transfer(1), may_transfer(2),
+        // next_addr(1), target_addr(1)] insn.readerCursor is the offset of the
+        // next instruction from the start of the buffer.
+        int32_t next_addr = static_cast<int32_t>(insn.readerCursor);
+        control_flow_ptr[current_row_idx * 2 + 3] = next_addr;
+        switch (flow_kind_enum) {
+        case eInstructionControlFlowKindUnknown:
+        case eInstructionControlFlowKindOther:
+          control_flow_ptr[current_row_idx * 2 + 0] = next_addr;
+          successors_ptr[current_row_idx * 2 + 0] = next_addr;
+          break;
+        case eInstructionControlFlowKindCall:
+        case eInstructionControlFlowKindJump:
+          control_flow_ptr[current_row_idx * 2 + 0] = branch_target;
+          successors_ptr[current_row_idx * 2 + 0] = branch_target;
+          break;
+        case eInstructionControlFlowKindCondJump:
+          control_flow_ptr[current_row_idx * 2 + 1] = next_addr;
+          control_flow_ptr[current_row_idx * 2 + 2] = branch_target;
+          successors_ptr[current_row_idx * 2 + 0] = next_addr;
+          successors_ptr[current_row_idx * 2 + 1] = branch_target;
+          break;
+        case eInstructionControlFlowKindReturn:
+        case eInstructionControlFlowKindFarCall:
+        case eInstructionControlFlowKindFarReturn:
+        case eInstructionControlFlowKindFarJump:
+          break;
         }
       } else {
         // Failed to disassemble at offset i
-        instrlen_flowkind_ptr[current_row_idx * 2 + 0] = 0; // Length 0
-        instrlen_flowkind_ptr[current_row_idx * 2 + 1] =
-            flow_kind_for_array; // Store flow kind from raw bytes
-
-        // Set control_flow to {0, 0} to indicate failure/unknown
-        control_flow_ptr[current_row_idx * 2 + 0] = -1;
-        control_flow_ptr[current_row_idx * 2 + 1] = -1;
+        instrlen_ptr[current_row_idx] = 0; // Length 0
+        flow_kind_ptr[current_row_idx] = 0; // Store flow kind from raw bytes
       }
     }
-    return std::make_tuple(instrlen_flowkind, control_flow);
+    return std::make_tuple(instrlen, flow_kind, control_flow, successors);
   }
 
   py::array_t<uint8_t> flow_kind(py::array_t<uint8_t> Bytes, bool is64) {
