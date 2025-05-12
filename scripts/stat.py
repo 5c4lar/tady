@@ -1,30 +1,63 @@
-import argparse
 import json
-import torchmetrics
-import torch
 import pathlib
 import multiprocessing
 import hydra
 from tqdm import tqdm
 from omegaconf import DictConfig, OmegaConf
+import numpy as np
+
+def precision(pred: np.ndarray, target: np.ndarray, epsilon: float = 1e-7) -> np.ndarray:
+    """Computes precision for binary classification."""
+    true_positives = np.sum(np.logical_and(pred == 1, target == 1))
+    predicted_positives = np.sum(pred == 1)
+    return true_positives / (predicted_positives + epsilon)
+
+def recall(pred: np.ndarray, target: np.ndarray, epsilon: float = 1e-7) -> np.ndarray:
+    """Computes recall for binary classification."""
+    true_positives = np.sum(np.logical_and(pred == 1, target == 1))
+    actual_positives = np.sum(target == 1)
+    return true_positives / (actual_positives + epsilon)
 
 def ins_to_mask(start, end, instructions):
-    # Initialize the mask with zeros
-    mask = torch.zeros(end - start, dtype=torch.bool)
-    
     # Ensure the start is less than the end for indexing
-    start, end = min(start, end), max(start, end)
+    # This standard Python min/max should be fine if start/end are scalars
+    # If they are JAX arrays and this function is JITted, this might need adjustment
+    # or be handled outside. For now, assuming they are scalars as per typical usage.
+    _start, _end = min(start, end), max(start, end)
     
-    # Mark the region between start and end as 1 using slicing
-    mask[start:end] = 1
+    # Initialize the mask with zeros
+    # The size of the mask is determined by the original, potentially swapped, start and end
+    mask_size = end - start
+    mask = np.zeros(mask_size, dtype=np.bool_)
+    
+    # Mark the region between the (potentially swapped) _start and _end as True
+    # The slicing indices must be relative to the mask's frame of reference (0 to mask_size-1)
+    # If original start > original end, this logic becomes tricky.
+    # Let's assume 'start' is always less than 'end' for the primary region marking.
+    # If not, the problem definition for this part needs clarification.
+    # For now, using original start/end for this slice, assuming start < end.
+    # If start can be > end, the definition of what mask[start:end] = 1 means needs to be clarified.
+    # Assuming the intent is to mark from the smaller to the larger index:
+    mask[_start - start:_end - start] = True
     
     # Create a tensor of points and mask the points inside the region
-    points_tensor = torch.tensor(instructions)
+    points_tensor = np.array(instructions)
     
-    points_tensor = points_tensor[torch.logical_and(points_tensor >= start, points_tensor < end)] - start
+    # Filter points that fall within the [_start, _end) range
+    # and normalize them relative to the original 'start' to match mask indices
+    valid_points = points_tensor[np.logical_and(points_tensor >= _start, points_tensor < _end)]
+    normalized_points = valid_points - start # Normalize to the original start
     
-    # Use boolean indexing to set points inside the range to 1
-    mask[points_tensor] = True
+    # Ensure normalized_points are within the bounds of the mask [0, mask_size)
+    # This step is crucial if valid_points can go outside the [start, end) range
+    # due to the min/max swapping, or if instructions can contain values outside this.
+    # For JAX, indices must be within bounds.
+    normalized_points = normalized_points[np.logical_and(normalized_points >= 0, normalized_points < mask_size)]
+
+    # Use boolean indexing to set points inside the range to True
+    # Only update if normalized_points is not empty
+    if normalized_points.size > 0:
+        mask[normalized_points] = True
     
     return mask
 
@@ -46,10 +79,10 @@ def process_file(args):
     labels = ins_to_mask(gt["start"], gt["end"], gt[label + "s"])
     pred = ins_to_mask(gt["start"], gt["end"], addrs)
 
-    precision = torchmetrics.functional.precision(pred, labels, 'binary')
-    recall = torchmetrics.functional.recall(pred, labels, 'binary')
-    print(f"{rel_path}: {precision.item()}, {recall.item()}, {total}")
-    return str(rel_path), precision.item(), recall.item(), total
+    p = precision(pred, labels)
+    r = recall(pred, labels)
+    print(f"{rel_path}: {p}, {r}, {total}")
+    return str(rel_path), p, r, total
 
 @hydra.main(version_base=None, config_path="conf", config_name="stat")
 def main(args: DictConfig):

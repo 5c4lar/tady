@@ -1,23 +1,22 @@
-import itertools
 import pathlib
 from typing import Dict, Tuple
 
 import datasets
+import grain
 import hydra
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 import orbax.checkpoint
-import torch.multiprocessing as multiprocessing
 import tqdm
 from flax import nnx
 from omegaconf import DictConfig, OmegaConf
 from pyarrow import parquet as pq
-from tady.model.tagnn_flax import *
-from torch.utils.data import DataLoader, IterableDataset
 
 import wandb
+from tady.model.tagnn_flax import *
+from tady.utils.loader import chunk_data
 
 
 @nnx.jit(static_argnames=["deterministic"])
@@ -88,6 +87,17 @@ def eval_step(model, batch, metrics):
                    recall=recall, accuracy=accuracy)
 
 
+def to_chunks(examples):
+    results = {"bytes": [], "labels": [], "mask": [], "is_64": []}
+    for bytes, labels, is_64 in zip(examples["bytes"], examples["labels"], examples["is_64"]):
+        chunks, labels, masks = chunk_data(bytes, 8192, 64, labels)
+        results["bytes"].extend(chunks.tolist())
+        results["labels"].extend(labels.tolist())
+        results["mask"].extend(masks.tolist())
+        results["is_64"].extend([is_64] * len(chunks))
+    return results
+
+
 def numpy_collate(x):
     return {key: np.stack([i[key] for i in x]) for key in x[0]}
 
@@ -105,8 +115,6 @@ def load_parquets(path):
             continue
     parquets = [str(i) for i in root_dir.rglob("*.parquet")]
     ds = datasets.load_dataset("parquet", data_files=parquets, split="train")
-    # split to train and test
-    ds = ds.train_test_split(0.1, 0.9, seed=42)
     return ds
 
 
@@ -115,10 +123,6 @@ def main(args: DictConfig):
     if multiprocessing.get_start_method(allow_none=True) != 'spawn':
         multiprocessing.set_start_method('spawn', force=True)
 
-    
-    
-    
-    
     max_position_embeddings = args.model.seq_len
     attention_type = args.model.attention
     vocab_size = args.model.vocab_size
@@ -139,14 +143,41 @@ def main(args: DictConfig):
         case "float16":
             dtype = jnp.float16
     connections: Dict[str, Tuple[int, int]] = OmegaConf.to_container(
-        args.connections.setting, resolve=True) # type: ignore
+        args.connections.setting, resolve=True)  # type: ignore
     num_global_connections = sum([b - a for a, b in connections.values()])
-    ds_dict = load_parquets(args.dataset_dir)
+    if args.dataset_format == "parquet":
+        ds = load_parquets(args.dataset_dir)
+    else:
+        ds = datasets.load_from_disk(args.dataset_dir)
+        ds.set_format(type="numpy")
+        ds = ds.map(to_chunks, num_proc=args.process, batched=True, batch_size=1, remove_columns=ds.column_names)
+    # split to train and test
+    ds_dict = ds.train_test_split(0.1, 0.9, seed=42)
     ds_dict.set_format("np")
-    train_dataloader = DataLoader(ds_dict['train'], shuffle=True, collate_fn=numpy_collate, drop_last=True,
-                                  batch_size=args.batch_size, pin_memory=False, persistent_workers=True, num_workers=args.process, prefetch_factor=2)
-    val_dataloader = DataLoader(ds_dict['test'], shuffle=False, collate_fn=numpy_collate, drop_last=True,
-                                batch_size=args.batch_size, pin_memory=False, persistent_workers=True, num_workers=args.process, prefetch_factor=2)
+    train_ds = grain.MapDataset.source(ds_dict['train']).batch(args.batch_size)
+    test_ds = grain.MapDataset.source(ds_dict['test']).batch(args.batch_size)
+    train_sampler = grain.samplers.IndexSampler(
+        num_records=len(train_ds),
+        num_epochs=args.epoch,
+        shuffle=True,
+        seed=0)
+    test_sampler = grain.samplers.IndexSampler(
+        num_records=len(test_ds),
+        num_epochs=args.epoch,
+        shuffle=False,
+        seed=0)
+    train_dataloader = grain.DataLoader(
+        data_source=train_ds,
+        sampler=train_sampler
+    )
+    val_dataloader = grain.DataLoader(
+        data_source=test_ds,
+        sampler=test_sampler
+    )
+    # train_dataloader = DataLoader(ds_dict['train'], shuffle=True, collate_fn=numpy_collate, drop_last=True,
+    #                               batch_size=args.batch_size, pin_memory=False, persistent_workers=True, num_workers=args.process, prefetch_factor=2)
+    # val_dataloader = DataLoader(ds_dict['test'], shuffle=False, collate_fn=numpy_collate, drop_last=True,
+    #                             batch_size=args.batch_size, pin_memory=False, persistent_workers=True, num_workers=args.process, prefetch_factor=2)
 
     rngs = nnx.Rngs(params=jax.random.key(
         0), dropout=jax.random.key(1), carry=jax.random.key(2))
@@ -210,7 +241,7 @@ def main(args: DictConfig):
         best_eval_acc = 0
         config.save_pretrained(config_path.absolute())
         for epoch in ebar:
-            tbar = tqdm.tqdm(train_dataloader, position=1, leave=False)
+            tbar = tqdm.tqdm(train_dataloader, position=1, leave=False, total=len(train_ds))
             for i, batch in enumerate(tbar):
                 # for key, value in batch.items():
                 #     print(key, value.shape)

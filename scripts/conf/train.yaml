@@ -15,7 +15,7 @@ wandb:
     project: disassemble_reproduce
 process: 24
 epoch: 1
-dataset_format: parquet # datasets or parquet
+dataset_format: datasets # datasets or parquet
 
 tags:
   - ${label}
