@@ -164,21 +164,22 @@ public:
         // next_addr(1), target_addr(1)] insn.readerCursor is the offset of the
         // next instruction from the start of the buffer.
         int32_t next_addr = static_cast<int32_t>(insn.readerCursor);
-        control_flow_ptr[current_row_idx * 2 + 3] = next_addr;
+        next_addr = next_addr >= num_bytes ? -1 : next_addr;
+        control_flow_ptr[current_row_idx * 4 + 3] = next_addr;
         switch (flow_kind_enum) {
         case eInstructionControlFlowKindUnknown:
         case eInstructionControlFlowKindOther:
-          control_flow_ptr[current_row_idx * 2 + 0] = next_addr;
+          control_flow_ptr[current_row_idx * 4 + 0] = next_addr;
           successors_ptr[current_row_idx * 2 + 0] = next_addr;
           break;
         case eInstructionControlFlowKindCall:
         case eInstructionControlFlowKindJump:
-          control_flow_ptr[current_row_idx * 2 + 0] = branch_target;
+          control_flow_ptr[current_row_idx * 4 + 0] = branch_target;
           successors_ptr[current_row_idx * 2 + 0] = branch_target;
           break;
         case eInstructionControlFlowKindCondJump:
-          control_flow_ptr[current_row_idx * 2 + 1] = next_addr;
-          control_flow_ptr[current_row_idx * 2 + 2] = branch_target;
+          control_flow_ptr[current_row_idx * 4 + 1] = next_addr;
+          control_flow_ptr[current_row_idx * 4 + 2] = branch_target;
           successors_ptr[current_row_idx * 2 + 0] = next_addr;
           successors_ptr[current_row_idx * 2 + 1] = branch_target;
           break;

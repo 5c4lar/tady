@@ -7,12 +7,12 @@ batch_size: 32
 label: instruction
 dataset: llvm-test-suite-gtirb
 test_dataset: llvm-test-suite-gtirb
-gt: ${work_dir}/data/gt/${test_dataset}
-input: ${work_dir}/data/results/${test_dataset}
-output: ${work_dir}/data/stats/${test_dataset}
+bin_dir: ${work_dir}/data/bin/${test_dataset}
+input_dir: ${work_dir}/data/results/${test_dataset}
+prune_dir: ${work_dir}/data/prune/${test_dataset}
+errors_dir: ${work_dir}/data/errors/${test_dataset}
 process: 24
 thread: 1
-prune: false
 model_id: null
 tags:
   - ${label}

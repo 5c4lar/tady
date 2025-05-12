@@ -16,6 +16,7 @@ prune: false
 model_id: null
 tags:
   - ${label}
+  - ${model.disassembler}
   - ${dataset}
   - ${model.attention}
   - ${connections.name}

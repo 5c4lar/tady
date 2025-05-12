@@ -10,6 +10,7 @@ checkpoint: ${work_dir}/models/orbax
 output: ${work_dir}/models/tf_models
 tags:
   - ${label}
+  - ${model.disassembler}
   - ${dataset}
   - ${model.attention}
   - ${connections.name}

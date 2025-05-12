@@ -1,57 +1,53 @@
-from tady.utils.loader import load_text
-from tady.model.disasm_jax import DisasmJax
-# from tady.graph import cpp
-import jax
+import json
+
+import pathlib
 import numpy as np
-import jax.numpy as jnp
+import hydra
+from omegaconf import DictConfig
+from tady import cpp
+from tady.utils.loader import load_text
+from multiprocessing import Pool
+from tqdm import tqdm
+
+def process_file(arg):
+    args, file, rel_path, model_id, result_path = arg
+    prune_path = pathlib.Path(args.prune_dir) / model_id / (str(rel_path) + ".json")
+    errors_path = pathlib.Path(args.errors_dir) / model_id / (str(rel_path) + ".json")
+    disassembler = cpp.Disassembler("x86_64")
+    text_array, use_64_bit, base_addr = load_text(file)
+    instr_len, flow_kind, control_flow, successors = disassembler.superset_disasm(text_array, use_64_bit)
+    score = np.load(result_path)
+    cf = flow_kind > 1
+    pdt = cpp.PostDominatorTree(successors, cf)
+    pruned = pdt.prune(score) + base_addr
+    errors = pdt.get_errors(score)
+    prune_path.parent.mkdir(parents=True, exist_ok=True)
+    errors_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(prune_path, "w") as f:
+        json.dump({"instructions": pruned.tolist()}, f)
+    with open(errors_path, "w") as f:
+        json.dump({key: (value + base_addr).tolist() for key, value in errors.items()}, f)
+    
+    
+@hydra.main(version_base=None, config_path="conf", config_name="prune")
+def main(args: DictConfig):
+    bin_dir = pathlib.Path(args.bin_dir)
+    model_id = "_".join([str(i) for i in args.tags])
+    input_path = pathlib.Path(args.input_dir) / model_id
+    files = bin_dir.rglob("*")
+    tasks = []
+    for file in files:
+        if file.is_file():
+            rel_path = file.relative_to(bin_dir)
+            result_path = input_path / rel_path / "score.npy"
+            if not result_path.exists():
+                print(f"Result not found for {rel_path}")
+                continue
+            tasks.append((args, file, rel_path, model_id, result_path))
+    with Pool(args.process) as pool, tqdm(total = len(tasks)) as pbar:
+        for result in pool.imap_unordered(process_file, tasks):
+            pbar.update()
+            pbar.refresh()
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description='Prune the graph')
-    parser.add_argument('--file', type=str, required=True, help='Path to the binary file')
-    args = parser.parse_args()
-    file_path = args.file
-    # Load the binary file
-
-    
-    text_array, use_64_bit, base_addr = load_text(file_path)
-        
-    # print(text_array[:100])
-    print(hex(base_addr))
-    print(use_64_bit)
-    # cpp_disasm = cpp.ldasm(text_array, use_64_bit)
-    # print(cpp_disasm[:10])
-    disassembler = DisasmJax()
-    text_array = jax.device_put(text_array)
-    jax_disasm, opcode_modrm = disassembler(text_array, np.array(use_64_bit, dtype=bool))
-    print(jax_disasm[:10], opcode_modrm[:10])
-    
-    # print(jax_disasm[:10])
-    # diff = jax_disasm != cpp_disasm
-    # # get the rows where the values are different
-    # different_rows = np.where(diff.any(axis=1))[0]
-    # print(f"Different rows: {len(different_rows)} {different_rows}")
-    # print(different_rows[:10])
-    # print(jax_disasm[different_rows][:10])
-    # print(cpp_disasm[different_rows][:10])
-    # jax_disasm = disassembler.disasm_seq(text_array, np.array(use_64_bit, dtype=bool))[:, :11]
-    # jax_disasm = jax_disasm_sequence(text_array, np.array(use_64_bit, dtype=bool))[:,:11]
-    # cpp_disasm = jax_disasm_sequence(text_array, np.array(use_64_bit, dtype=bool))[:,:11]
-    # jax_disasm = cpp.ldasm(text_array, use_64_bit)
-    # text_array, use_64_bit, base_addr = load_text(file_path)
-    
-    # diff = jax_disasm != cpp_disasm
-    # # get the rows where the values are different
-    # diff_rows = np.where(diff.any(axis=1))[0]
-    # # print the rows where the values are different
-    # print(f"Different rows: {len(diff_rows)} {diff_rows}")
-    # print(jax_disasm[diff_rows][:10])
-    # print(cpp_disasm[diff_rows][:10])
-    # print(text_array.shape)
-    # instruction, control_flow, instr_len = preprocess_binary(text_array, np.array(use_64_bit, dtype=bool))
-    # edges = jax.device_get(control_flow[:, :2])
-    # weights = np.ones(edges.shape[0], dtype=np.float32)
-    # cf = np.ones(edges.shape[0], dtype=bool)
-    # print(edges)
-    # wccs = cpp.process_graph_pipeline(edges, weights, cf)
-    # print(f"Number of WCCs: {wccs}")
+    main()

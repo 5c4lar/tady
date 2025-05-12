@@ -3,7 +3,7 @@ import pathlib
 import multiprocessing
 import hydra
 from tqdm import tqdm
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 import numpy as np
 
 def precision(pred: np.ndarray, target: np.ndarray, epsilon: float = 1e-7) -> np.ndarray:
@@ -29,17 +29,7 @@ def ins_to_mask(start, end, instructions):
     # The size of the mask is determined by the original, potentially swapped, start and end
     mask_size = end - start
     mask = np.zeros(mask_size, dtype=np.bool_)
-    
-    # Mark the region between the (potentially swapped) _start and _end as True
-    # The slicing indices must be relative to the mask's frame of reference (0 to mask_size-1)
-    # If original start > original end, this logic becomes tricky.
-    # Let's assume 'start' is always less than 'end' for the primary region marking.
-    # If not, the problem definition for this part needs clarification.
-    # For now, using original start/end for this slice, assuming start < end.
-    # If start can be > end, the definition of what mask[start:end] = 1 means needs to be clarified.
-    # Assuming the intent is to mark from the smaller to the larger index:
-    mask[_start - start:_end - start] = True
-    
+
     # Create a tensor of points and mask the points inside the region
     points_tensor = np.array(instructions)
     
@@ -47,12 +37,6 @@ def ins_to_mask(start, end, instructions):
     # and normalize them relative to the original 'start' to match mask indices
     valid_points = points_tensor[np.logical_and(points_tensor >= _start, points_tensor < _end)]
     normalized_points = valid_points - start # Normalize to the original start
-    
-    # Ensure normalized_points are within the bounds of the mask [0, mask_size)
-    # This step is crucial if valid_points can go outside the [start, end) range
-    # due to the min/max swapping, or if instructions can contain values outside this.
-    # For JAX, indices must be within bounds.
-    normalized_points = normalized_points[np.logical_and(normalized_points >= 0, normalized_points < mask_size)]
 
     # Use boolean indexing to set points inside the range to True
     # Only update if normalized_points is not empty
@@ -63,6 +47,7 @@ def ins_to_mask(start, end, instructions):
 
 def process_file(args):
     gt_root_path, gt_file, pred_file, label = args
+    # print(gt_file, pred_file)
     gt = json.load(open(gt_file, "r"))
     rel_path = gt_file.relative_to(gt_root_path)
     try:
@@ -81,7 +66,9 @@ def process_file(args):
 
     p = precision(pred, labels)
     r = recall(pred, labels)
-    print(f"{rel_path}: {p}, {r}, {total}")
+    true_insts = np.sum(labels)
+    correct_insts = np.sum(np.logical_and(pred, labels))
+    print(f"{rel_path}: {p}, {r}, {total}, {true_insts}, {correct_insts}")
     return str(rel_path), p, r, total
 
 @hydra.main(version_base=None, config_path="conf", config_name="stat")

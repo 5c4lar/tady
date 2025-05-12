@@ -3,7 +3,7 @@ defaults:
   - connections: all
   - model: default
 work_dir: ${hydra:runtime.cwd}
-batch_size: 32
+batch_size: 64
 label: instruction
 dataset: llvm-test-suite-gtirb
 test_dataset: llvm-test-suite-gtirb
@@ -14,9 +14,10 @@ thread: 1
 host: localhost
 port: 8500
 model_id: null
-threshold: 0.5
+threshold: 0.
 tags:
   - ${label}
+  - ${model.disassembler}
   - ${dataset}
   - ${model.attention}
   - ${connections.name}

@@ -15,7 +15,7 @@ from transformers.modeling_flax_utils import ACT2FN
 from transformers.modeling_rope_utils import rope_config_validation
 
 from tady.model.attention import get_attention, get_attention_lite
-from tady.model.disasm_jax import DisasmJax
+from tady.model.disasm_jax import DisasmJax, byte_sequence_to_instr_bytes, overlapping_addresses
 
 
 class TAGNNConfig(PretrainedConfig):
@@ -90,6 +90,7 @@ class TAGNNConfig(PretrainedConfig):
             self.rope_scaling["rope_type"] = self.rope_scaling["type"]
         rope_config_validation(self)
         super().__init__(**kwargs)
+
 
 def create_sinusoidal_positions(num_pos, dim, dtype=np.float32):
     inv_freq = 1.0 / (10000 ** (np.arange(0, dim, 2, dtype=np.int32) / dim))
@@ -244,7 +245,7 @@ class FlaxLlamaAttention(nnx.Module):
         key, query = self.rotary_emb(key, query, position_ids)
 
         dropout_rng = None
-        if not deterministic and self.config.attention_dropout > 0.0:
+        if not deterministic and rngs is not None and self.config.attention_dropout > 0.0:
             dropout_rng = rngs.dropout()
 
         key = jnp.repeat(key, self.num_key_value_groups, axis=2)
@@ -457,7 +458,7 @@ class FlaxLlamaEncoderLayer(nnx.Module):
         attention_mask=None,
         position_ids=None,
         connections=None,
-        rngs: nnx.Rngs = None,
+        rngs: Optional[nnx.Rngs] = None,
         deterministic: bool = True,
         output_attentions: bool = False,
     ):
@@ -509,7 +510,7 @@ class FlaxLlamaLayerCollection(nnx.Module):
         attention_mask=None,
         position_ids=None,
         connections=None,
-        rngs: nnx.Rngs = None,
+        rngs: Optional[nnx.Rngs] = None,
         deterministic: bool = True,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
@@ -548,6 +549,18 @@ class FlaxLlamaModule(nnx.Module):
         self.hidden_size = self.config.hidden_size
         embedding_init = jax.nn.initializers.normal(
             stddev=self.config.initializer_range)
+        self.mode_embedding = nnx.Embed(
+            2,
+            self.hidden_size,
+            embedding_init=embedding_init,
+            dtype=self.dtype,
+            param_dtype=self.dtype,
+            rngs=rngs,
+        )
+        self.invalid_embedding = nnx.Param(
+            jax.random.normal(
+                rngs.params(), (self.hidden_size,), dtype=self.dtype)
+        )
         self.embed_tokens = nnx.Embed(
             self.config.vocab_size,
             self.hidden_size,
@@ -582,36 +595,42 @@ class FlaxLlamaModule(nnx.Module):
         attention_mask=None,
         position_ids=None,
         connections=None,
-        token_mask=None,
-        rngs: nnx.Rngs = None,
+        instr_len=None,
+        is_64=None,
+        rngs: Optional[nnx.Rngs] = None,
         deterministic=True,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
         return_dict: bool = True,
     ):
         input_embeds = self.embed_tokens(input_ids.astype("i4"))
-        if token_mask is None:
-            token_mask = jnp.ones_like(input_ids)
+        if instr_len is None:
+            instr_len = jnp.ones(
+                input_ids.shape[0], input_ids.shape[1]) * input_ids.shape[2]
+        input_embeds = jnp.where(
+            instr_len[:, :, None, None] != 0, input_embeds, self.invalid_embedding[None, None, None, :])
+        instr_len = jnp.where(
+            instr_len != 0, instr_len, 1
+        )
+        is_64 = is_64 if is_64 is not None else jnp.ones(
+            input_ids.shape[0], dtype=jnp.bool_)
+        mode_embeds = self.mode_embedding(is_64.astype("i4"))
+        input_embeds = input_embeds + mode_embeds[:, None, None, :]
         if self.config.token_pool == "rnn":
-            seq_lengths = jnp.sum(token_mask, axis=-1, keepdims=False)
             input_embeds = self.pool_tokens(
                 jnp.reshape(input_embeds, (-1, ) + input_embeds.shape[2:]),
                 initial_carry=jnp.repeat(
                     self.initial_carry[None, :], input_embeds.shape[0] * input_embeds.shape[1], axis=0),
-                seq_lengths=jnp.reshape(seq_lengths, (-1, )),
+                seq_lengths=jnp.reshape(instr_len, (-1, )),
                 # rngs=rngs
             )[0].reshape(input_embeds.shape[:2] + (self.config.hidden_size,))
         elif self.config.token_pool == "mean":
-            if token_mask is not None:
+            if instr_len is not None:
                 input_embeds = jnp.sum(
-                    input_embeds, axis=2, where=jnp.expand_dims(token_mask, -1))
-
-                # Compute valid token counts by summing attention_mask
-                valid_token_counts = jnp.sum(
-                    token_mask, axis=2, keepdims=True) + 1e-9  # Avoid division by zero
+                    input_embeds, axis=2, where=jnp.expand_dims(instr_len, -1))
 
                 # Compute average of valid embeddings
-                input_embeds = input_embeds / valid_token_counts
+                input_embeds = input_embeds / (instr_len + 1e-9)
             else:
                 input_embeds = jnp.mean(input_embeds, axis=2)
         elif self.config.token_pool == "sum":
@@ -668,8 +687,9 @@ class FlaxLlamaForTokenClassification(nnx.Module):
         input_ids,
         attention_mask=None,
         connections=None,
-        token_mask=None,
-        rngs: nnx.Rngs = None,
+        instr_len=None,
+        is_64=None,
+        rngs: Optional[nnx.Rngs] = None,
         deterministic=True,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
@@ -680,7 +700,8 @@ class FlaxLlamaForTokenClassification(nnx.Module):
             None, :], (batch_size, seq_len))
         outputs = self.model(
             input_ids,
-            token_mask=token_mask,
+            instr_len=instr_len,
+            is_64=is_64,
             attention_mask=attention_mask,
             position_ids=position_ids,
             connections=connections,
@@ -728,29 +749,28 @@ class FlaxLlamaForBinaryTokenClassification(nnx.Module):
     def __call__(
         self,
         byte_sequence: jnp.ndarray,
-        use_64_bit: jnp.ndarray = None,
-        rngs: nnx.Rngs = None,
+        is_64: Optional[jnp.ndarray] = None,
+        rngs: Optional[nnx.Rngs] = None,
         deterministic=True,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
         return_dict: bool = True,
+        **kwargs,
     ):
-        if use_64_bit is None:
-            use_64_bit = jnp.ones(
+        if is_64 is None:
+            is_64 = jnp.ones(
                 byte_sequence.shape[0], dtype=jnp.bool_)
         batch_size, seq_len = byte_sequence.shape[:2]
         input_ids, connections, instr_len, _ = nnx.vmap(
-            self.disassembler, in_axes=(0, 0))(byte_sequence, use_64_bit)
-        idx = jnp.arange(input_ids.shape[-1], dtype=jnp.int32)[None, None, :]
-        token_mask = jnp.where(
-            instr_len[:, :, None] > idx, True, False).astype(jnp.bool_)
-        
+            self.disassembler, in_axes=(0, 0))(byte_sequence, is_64)
+
         if self.config.attention_type == "graph":
             attention_mask = get_attention(
                 connections[..., :4], self.config.sliding_window
             )
         elif self.config.attention_type == "lite":
-            attention_mask = jax.vmap(get_attention_lite, in_axes=(0, None))(connections[..., :4], self.config.sliding_window)
+            attention_mask = jax.vmap(get_attention_lite, in_axes=(0, None))(
+                connections[..., :4], self.config.sliding_window)
         elif self.config.attention_type == "full":
             attention_mask = jnp.ones(
                 byte_sequence.shape[:2] + (1, sum(self.config.sliding_window) + 1), dtype=jnp.bool)
@@ -758,7 +778,8 @@ class FlaxLlamaForBinaryTokenClassification(nnx.Module):
             None, :], (batch_size, seq_len))
         outputs = self.model(
             input_ids,
-            token_mask=token_mask,
+            instr_len=instr_len,
+            is_64=is_64,
             attention_mask=attention_mask,
             position_ids=position_ids,
             connections=connections,
@@ -785,6 +806,87 @@ class FlaxLlamaForBinaryTokenClassification(nnx.Module):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
+
+
+class Tady(nnx.Module):
+    def __init__(self, config: TAGNNConfig,
+                 dtype: jnp.dtype = jnp.float32, *, rngs: nnx.Rngs):
+        self.config = config
+        self.dtype = dtype
+        self.hidden_size = self.config.hidden_size
+        self.model = FlaxLlamaModule(config, dtype=dtype, rngs=rngs)
+        if getattr(config, "classifier_dropout", None) is not None:
+            classifier_dropout = config.classifier_dropout
+        else:
+            classifier_dropout = 0.1
+        self.dropout = nnx.Dropout(classifier_dropout)
+        self.score = nnx.Linear(
+            config.hidden_size, config.num_labels, dtype=self.dtype, param_dtype=self.dtype, rngs=rngs)
+
+    def __call__(
+        self,
+        byte_sequence: jnp.ndarray,
+        is_64: jnp.ndarray,
+        instr_len: jnp.ndarray,
+        control_flow: jnp.ndarray,
+        rngs: Optional[nnx.Rngs] = None,
+        deterministic=True,
+        output_attentions: bool = False,
+        output_hidden_states: bool = False,
+        return_dict: bool = True,
+        **kwargs,
+    ):
+        batch_size, seq_len = byte_sequence.shape[:2]
+        input_ids = jax.vmap(byte_sequence_to_instr_bytes)(byte_sequence)
+        idx = jnp.arange(0, input_ids.shape[2])
+        input_ids += idx[None, None, :] * 256
+        # calculate overlapping connections based on instr_len
+        overlapping = jax.vmap(overlapping_addresses)(instr_len)
+        connections = jnp.concatenate([control_flow, overlapping], axis=-1)
+
+        if self.config.attention_type == "graph":
+            attention_mask = get_attention(
+                connections[..., :4], self.config.sliding_window
+            )
+        elif self.config.attention_type == "lite":
+            attention_mask = jax.vmap(get_attention_lite, in_axes=(0, None))(
+                connections[..., :4], self.config.sliding_window)
+        elif self.config.attention_type == "full":
+            attention_mask = jnp.ones(
+                byte_sequence.shape[:2] + (1, sum(self.config.sliding_window) + 1), dtype=jnp.bool)
+        position_ids = jnp.broadcast_to(jnp.arange(seq_len, dtype=jnp.int32)[
+            None, :], (batch_size, seq_len))
+        outputs = self.model(
+            input_ids,
+            instr_len=instr_len,
+            is_64=is_64,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            connections=connections,
+            rngs=rngs,
+            deterministic=deterministic,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict
+        )
+        if not return_dict:
+            sequence_output = outputs[0]
+        else:
+            sequence_output = outputs.last_hidden_state
+        sequence_output = self.dropout(
+            sequence_output, deterministic=deterministic, rngs=rngs)
+        logits = self.score(sequence_output)
+
+        if not return_dict:
+            outputs = (logits,) + outputs[1:]
+            return tuple(v for v in outputs if v is not None)
+
+        return FlaxTokenClassifierOutput(
+            logits=logits,
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions,
+        )
+
 
 def main():
     """

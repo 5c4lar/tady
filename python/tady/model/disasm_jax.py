@@ -192,6 +192,21 @@ def extract_number(instr_bytes, offset, size):
                      axis=0, dtype=jnp.int32)
     return result
 
+@jax.jit
+def overlapping_addresses(instr_len):
+    '''
+    Calculate the overlapping addresses for the instruction.
+
+    Args:
+        instr_len: A JAX array of shape [L] containing the instruction length
+    Returns:
+        A JAX array of shape [L, 14] containing the overlapping addresses
+    '''
+    offset = jnp.arange(0, instr_len.shape[0])
+    ranges = jnp.arange(1, 15)
+    overlapping = jnp.where(instr_len[:, jnp.newaxis] > ranges[jnp.newaxis, :],
+                            offset[:, jnp.newaxis] + ranges[jnp.newaxis, :], -1)
+    return overlapping
 
 @jax.jit
 def parse_disasm(instr_bytes, disasm, flow_kind):
@@ -234,9 +249,7 @@ def parse_disasm(instr_bytes, disasm, flow_kind):
     # next instruction address
     next_instr_addr = jnp.where(instr_len > 0, offset + instr_len, -1)
     # overlapping addresses
-    ranges = jnp.arange(1, 15)
-    overlapping = jnp.where(instr_len[:, jnp.newaxis] > ranges[jnp.newaxis, :],
-                            offset[:, jnp.newaxis] + ranges[jnp.newaxis, :], -1)
+    overlapping = overlapping_addresses(instr_len)
     # must target, based on flow kind, next for other, -1 for unconditional jumps, next + imm for unconditional jumps and calls
     must_target = jnp.where(flow_kind == 1, next_instr_addr, -1)
     must_target = jnp.where((((flow_kind == 2) | (flow_kind == 4)) & (

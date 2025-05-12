@@ -17,18 +17,27 @@ from pyarrow import parquet as pq
 import wandb
 from tady.model.tagnn_flax import *
 from tady.utils.loader import chunk_data
+from tady import cpp
 
 
 @nnx.jit(static_argnames=["deterministic"])
-def forward(model, batch, rngs=None, deterministic=True):
-    output = model(batch['bytes'].astype(jnp.uint8), use_64_bit=batch['is_64'], deterministic=deterministic,
+def forward_jax(model, batch, rngs=None, deterministic=True):
+    output = model(batch['bytes'].astype(jnp.uint8), is_64=batch['is_64'], deterministic=deterministic,
                    rngs=rngs).logits.squeeze(-1)
     return output
 
 
-@nnx.jit
-def loss_fn(model, batch, rngs):
-    output = forward(model, batch, rngs, deterministic=False)
+@nnx.jit(static_argnames=["deterministic"])
+def forward_cpp(model, batch, rngs=None, deterministic=True):
+    output = model(batch['bytes'].astype(jnp.uint8), is_64=batch['is_64'], instr_len=batch['instr_len'].astype(jnp.uint8), control_flow=batch['control_flow'].astype(jnp.int32),
+                   deterministic=deterministic,
+                   rngs=rngs).logits.squeeze(-1)
+    return output
+
+
+@nnx.jit(static_argnames=["forward_fn"])
+def loss_fn(model, batch, rngs, forward_fn):
+    output = forward_fn(model, batch, rngs, deterministic=False)
     loss_correct = jnp.sum(optax.sigmoid_focal_loss(
         output, batch["labels"], alpha=0.8, gamma=4.0), where=batch["mask"]
     )
@@ -71,9 +80,9 @@ def train_step(model, optimizer, batch, metrics, value_and_grad_fn, rngs):
                    recall=recall, accuracy=accuracy)
 
 
-@nnx.jit
-def eval_step(model, batch, metrics):
-    output = forward(
+@nnx.jit(static_argnames=["forward_fn"])
+def eval_step(model, batch, metrics, forward_fn):
+    output = forward_fn(
         model, batch, None, deterministic=True)
     pred = jax.nn.sigmoid(output) > 0.5
     acc = (pred == batch["labels"]).astype(jnp.float32)
@@ -98,6 +107,22 @@ def to_chunks(examples):
     return results
 
 
+class Disassembler:
+    def __init__(self, arch: str):
+        self.disassembler = None
+        self.arch = arch
+
+    def __call__(self, example):
+        if self.disassembler is None:
+            self.disassembler = cpp.Disassembler(self.arch)
+        instr_len, _, control_flow, _ = self.disassembler.superset_disasm(
+            example["bytes"], example["is_64"])
+        return {
+            "instr_len": instr_len,
+            "control_flow": control_flow
+        }
+
+
 def numpy_collate(x):
     return {key: np.stack([i[key] for i in x]) for key in x[0]}
 
@@ -120,8 +145,6 @@ def load_parquets(path):
 
 @hydra.main(version_base=None, config_path="conf", config_name="train")
 def main(args: DictConfig):
-    if multiprocessing.get_start_method(allow_none=True) != 'spawn':
-        multiprocessing.set_start_method('spawn', force=True)
 
     max_position_embeddings = args.model.seq_len
     attention_type = args.model.attention
@@ -150,7 +173,11 @@ def main(args: DictConfig):
     else:
         ds = datasets.load_from_disk(args.dataset_dir)
         ds.set_format(type="numpy")
-        ds = ds.map(to_chunks, num_proc=args.process, batched=True, batch_size=1, remove_columns=ds.column_names)
+        ds = ds.map(to_chunks, num_proc=args.process, batched=True,
+                    batch_size=1, remove_columns=ds.column_names)
+        if args.model.disassembler == "cpp":
+            disassembler = Disassembler("x86_64")
+            ds = ds.map(disassembler, num_proc=args.process)
     # split to train and test
     ds_dict = ds.train_test_split(0.1, 0.9, seed=42)
     ds_dict.set_format("np")
@@ -168,16 +195,14 @@ def main(args: DictConfig):
         seed=0)
     train_dataloader = grain.DataLoader(
         data_source=train_ds,
-        sampler=train_sampler
+        sampler=train_sampler,
+        worker_count=args.process
     )
     val_dataloader = grain.DataLoader(
         data_source=test_ds,
-        sampler=test_sampler
+        sampler=test_sampler,
+        worker_count=args.process
     )
-    # train_dataloader = DataLoader(ds_dict['train'], shuffle=True, collate_fn=numpy_collate, drop_last=True,
-    #                               batch_size=args.batch_size, pin_memory=False, persistent_workers=True, num_workers=args.process, prefetch_factor=2)
-    # val_dataloader = DataLoader(ds_dict['test'], shuffle=False, collate_fn=numpy_collate, drop_last=True,
-    #                             batch_size=args.batch_size, pin_memory=False, persistent_workers=True, num_workers=args.process, prefetch_factor=2)
 
     rngs = nnx.Rngs(params=jax.random.key(
         0), dropout=jax.random.key(1), carry=jax.random.key(2))
@@ -198,14 +223,22 @@ def main(args: DictConfig):
         num_labels=num_labels,
         max_position_embeddings=max_position_embeddings
     )
-    model = FlaxLlamaForBinaryTokenClassification(
-        config,
-        dtype=dtype,
-        rngs=rngs
-    )
-    # graphdef, state = nnx.split(model)
-    # print(state)
-    value_and_grad_fn = nnx.value_and_grad(loss_fn, has_aux=True)
+    if args.model.disassembler == "cpp":
+        model = Tady(config, dtype=dtype, rngs=rngs)
+        forward_fn = forward_cpp
+
+    elif args.model.disassembler == "jax":
+        model = FlaxLlamaForBinaryTokenClassification(
+            config,
+            dtype=dtype,
+            rngs=rngs
+        )
+        forward_fn = forward_jax
+    else:
+        raise ValueError(f"Invalid disassembler: {args.disassembler}")
+
+    value_and_grad_fn = nnx.value_and_grad(
+        partial(loss_fn, forward_fn=forward_fn), has_aux=True)
     optimizer = nnx.Optimizer(model, optax.chain(
         optax.clip_by_global_norm(1),
         optax.adamw(1e-3)
@@ -222,8 +255,6 @@ def main(args: DictConfig):
         accuracy=nnx.metrics.Average('accuracy')
     )
     checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-    # tags = [args.label, args.attention, args.window_size, args.hidden_size,
-    #         args.layers, config.num_global_connections, args.dtype] + ([] if args.global_connection_class else ["noclass"])
     model_id = "_".join([str(i) for i in args.tags])
     checkpoint_path = pathlib.Path(args.checkpoint) / model_id
     config_path = pathlib.Path(args.config) / model_id
@@ -241,7 +272,8 @@ def main(args: DictConfig):
         best_eval_acc = 0
         config.save_pretrained(config_path.absolute())
         for epoch in ebar:
-            tbar = tqdm.tqdm(train_dataloader, position=1, leave=False, total=len(train_ds))
+            tbar = tqdm.tqdm(train_dataloader, position=1,
+                             leave=False, total=len(train_ds))
             for i, batch in enumerate(tbar):
                 # for key, value in batch.items():
                 #     print(key, value.shape)
@@ -256,7 +288,7 @@ def main(args: DictConfig):
                 train_metrics.reset()
                 # if (global_step % args.checkpoint_steps) == 0:
             for val_batch in val_dataloader:
-                eval_step(model, val_batch, eval_metrics)
+                eval_step(model, val_batch, eval_metrics, forward_fn)
                 metrics_dict = {f"val_{name}": f"{metric:.4f}" for name,
                                 metric in eval_metrics.compute().items()}
                 ebar.set_postfix(metrics_dict)

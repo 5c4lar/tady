@@ -22,7 +22,7 @@ base_template = \
     {content}}}
 """
 
-batching_conf = '''max_batch_size { value: 32 }
+batching_conf = '''max_batch_size { value: 128 }
 batch_timeout_micros { value: 0 }
 max_enqueued_batches { value: 1000000 }
 num_batch_threads { value: 24 }'''
