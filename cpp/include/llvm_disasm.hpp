@@ -187,6 +187,7 @@ public:
         case eInstructionControlFlowKindFarCall:
         case eInstructionControlFlowKindFarReturn:
         case eInstructionControlFlowKindFarJump:
+        case eInstructionControlFlowKindHalt:
           break;
         }
       } else {

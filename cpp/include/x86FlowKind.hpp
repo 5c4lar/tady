@@ -30,7 +30,10 @@ enum InstructionControlFlowKind {
   eInstructionControlFlowKindFarReturn,
   /// The instruction is a jump-like far transfer.
   /// E.g. FAR JMP.
-  eInstructionControlFlowKindFarJump
+  eInstructionControlFlowKindFarJump,
+  /// The instruction halts or irreversibly disrupts execution without transferring control.
+  /// Examples: HLT.
+  eInstructionControlFlowKindHalt
 };
 
 /// These are the three values deciding instruction control flow kind.
@@ -90,6 +93,10 @@ MapOpcodeIntoControlFlowKind(InstructionOpcodeAndModrm opcode_and_modrm) {
   }
 
   switch (opcode) {
+  case 0xf4:
+    if (opcode_len == 1)
+      return eInstructionControlFlowKindHalt;
+    break;
   case 0x9A:
     if (opcode_len == 1)
       return eInstructionControlFlowKindFarCall;
@@ -365,5 +372,7 @@ inline const char *GetNameForInstructionControlFlowKind(
     return "far return";
   case eInstructionControlFlowKindFarJump:
     return "far jump";
+  case eInstructionControlFlowKindHalt:
+    return "halt";
   }
 }
