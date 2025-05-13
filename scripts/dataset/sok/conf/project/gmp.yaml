@@ -1,0 +1,3 @@
+name: gmp
+source_dir: /work/data/source/gmp-6.3.0
+configure: ${project.source_dir}/configure

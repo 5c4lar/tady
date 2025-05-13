@@ -23,13 +23,20 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
+    "tqdm",
+    "numpy",
+    "hydra-core",
+    "hydra-joblib-launcher",
+]
+
+[project.optional-dependencies]
+training = [
     "jax[cuda12]",
     "flax[all]",
     "grain",
     "tqdm",
     "datasets",
     "wandb",
-    "hydra-core",
     "lief",
     "transformers",
     "orbax-checkpoint",
@@ -39,7 +46,7 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/yourusername/tady"
+Repository = "https://github.com/5c4lar/tady"
 
 [tool.setuptools]
 package-dir = {"" = "python"}
@@ -47,6 +54,12 @@ package-dir = {"" = "python"}
 [tool.scikit-build]
 cmake.build-type = "Release"
 install.strip = false
+cmake.args = ["-DTADY_ENABLE_CPP=OFF"]
+
+[dependency-groups]
+dev = [
+    "ipykernel",
+]
 
 [tool.setuptools.packages.find]
 where = ["python"]

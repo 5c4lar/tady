@@ -1,0 +1,3 @@
+name: libtomcrypt
+source_dir: /work/data/source/libtomcrypt-1.18.2
+configure: ${project.source_dir}/configure

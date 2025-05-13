@@ -2,6 +2,10 @@
 Tady: A Neural Disassembler without Consistency Violations
 
 ## Dev Environment
+Install uv
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 ```bash
 pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 pip install -e .

@@ -1,0 +1,14 @@
+name: clang64
+mode: 64
+env_file: clang64.rc
+GT_PATH: /gt_x86
+CLANG_PATH: ${compiler.GT_PATH}/build/build_clang/bin
+LIBC_PATH: ${compiler.GT_PATH}/build/glibc_build_64
+BINUTILS_PATH: ${compiler.GT_PATH}/build/executable_binutils
+envs:
+  CC: ${compiler.CLANG_PATH}/clang -B${compiler.BINUTILS_PATH}
+  CXX: ${compiler.CLANG_PATH}/clang++ -B${compiler.BINUTILS_PATH}
+  CFLAGS: -B${compiler.LIBC_PATH}/lib -g
+  CXXFLAGS: -B${compiler.LIBC_PATH}/lib -g
+  LDFLAGS: -L${compiler.LIBC_PATH}/lib
+

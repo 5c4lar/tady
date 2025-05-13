@@ -1,0 +1,4 @@
+name: diffutils
+source_dir: /work/data/source/diffutils-3.12
+configure64: ${project.source_dir}/configure
+configure32: ${project.source_dir}/configure --disable-year2038

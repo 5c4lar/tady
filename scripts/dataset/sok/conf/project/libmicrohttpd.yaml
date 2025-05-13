@@ -1,0 +1,3 @@
+name: libmicrohttpd
+source_dir: /work/data/source/libmicrohttpd-1.0.1
+configure: ${project.source_dir}/configure

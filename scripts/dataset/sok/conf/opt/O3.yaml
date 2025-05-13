@@ -1,0 +1,3 @@
+options:
+  - -O3
+suffix: O3

@@ -1,0 +1,14 @@
+name: gcc32
+mode: 32
+env_file: gcc32.rc
+GT_PATH: /gt_x86
+GCC_PATH: ${compiler.GT_PATH}/build/executable_gcc/bin
+LIBC_PATH: ${compiler.GT_PATH}/build/glibc_build_32
+BINUTILS_PATH: ${compiler.GT_PATH}/build/executable_binutils
+envs:
+  CC: ${compiler.GCC_PATH}/gcc-8.1 -m32 -B${compiler.BINUTILS_PATH}
+  CXX: ${compiler.GCC_PATH}/g++-8.1 -m32 -B${compiler.BINUTILS_PATH}
+  CFLAGS: -B${compiler.LIBC_PATH}/lib -g
+  CXXFLAGS: -B${compiler.LIBC_PATH}/lib -g
+  LDFLAGS: -L${compiler.LIBC_PATH}/lib
+

@@ -15,4 +15,6 @@ else()
 endif()
 
 # Add the C++ subdirectory
-add_subdirectory(cpp)
+if (TADY_ENABLE_CPP)
+  add_subdirectory(cpp)
+endif()

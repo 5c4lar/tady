@@ -1,0 +1,11 @@
+defaults:
+  - _self_
+  - compiler: clang64
+  - project: diffutils
+  - opt: O0
+  - override hydra/launcher: joblib
+
+env_file: /gt_x86/${compiler.env_file}
+build_dir: /work/data/build/${project.name}/${compiler.name}/${opt.suffix}
+install_dir: /work/data/install/${project.name}/${compiler.name}/${opt.suffix}
+jobs: 8
