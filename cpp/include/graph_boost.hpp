@@ -320,7 +320,7 @@ class PostDominatorTree {
                            const BiDiGraph &g) {
         visited[v] = true;
         if (weights[v] > 0 &&
-            !errors["dangling"].contains(component_nodes[ipdom[v]])) {
+            !errors["dangling"].contains(component_nodes[ipdom[component_nodes[v]]])) {
           errors["dangling"].emplace(component_nodes[v]);
         }
       }
@@ -356,7 +356,7 @@ class PostDominatorTree {
     }
     for (auto v : boost::make_iterator_range(boost::vertices(dtree))) {
       if (v != exit_node && weights[v] > 0 && !visited[v] &&
-          visited[ipdom[v]]) {
+          visited[ipdom[component_nodes[v]]]) {
         errors["coexist"].emplace(component_nodes[v]);
       }
     }
