@@ -20,7 +20,6 @@ endif()
 include_directories(${Boost_INCLUDE_DIRS})
 
 # Pybind11
-find_package(Python3 COMPONENTS Interpreter Development)
 find_package(pybind11 QUIET)
 if(NOT pybind11_FOUND)
     message(STATUS "pybind11 not found, using FetchContent to download it")

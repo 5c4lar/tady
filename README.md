@@ -6,7 +6,10 @@ Tady: A Neural Disassembler without Consistency Violations
 pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 pip install -e .
 ```
-
+Use Docker
+```bash
+docker build -t tady -f docker/Dockerfile .
+```
 ## Train
 Preprocess binary file
 ```bash
