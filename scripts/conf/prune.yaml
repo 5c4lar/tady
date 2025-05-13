@@ -11,9 +11,12 @@ bin_dir: ${work_dir}/data/bin/${test_dataset}
 input_dir: ${work_dir}/data/results/${test_dataset}
 prune_dir: ${work_dir}/data/prune/${test_dataset}
 errors_dir: ${work_dir}/data/errors/${test_dataset}
+gt_dir: ${work_dir}/data/gt/${test_dataset}
 process: 24
 thread: 1
 model_id: null
+prune_gt: false
+overwrite: false
 tags:
   - ${label}
   - ${model.disassembler}

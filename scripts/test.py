@@ -74,6 +74,8 @@ def process_file(arg):
         rel_path = file.relative_to(args.dir)
         output_path = pathlib.Path(output) / rel_path / "result.json"
         score_path = pathlib.Path(output) / rel_path / "score.npy"
+        if output_path.exists() and score_path.exists():
+            return
         byte_chunks, masks, use_64_bit, base_addr = preprocess_binary(file)
         batched_byte_chunks, batched_masks = batchify(
             byte_chunks, masks, args.batch_size)

@@ -1,5 +1,6 @@
 #include <algorithm> // For std::vector construction from set
 #include <boost/graph/adjacency_list.hpp>
+#include <boost/graph/connected_components.hpp>
 #include <boost/graph/dominator_tree.hpp>
 #include <boost/graph/strong_components.hpp>
 #include <map> // Keep for now, might be used elsewhere, though prune_tree won't use it.
@@ -7,6 +8,7 @@
 #include <pybind11/pybind11.h>
 #include <queue>
 #include <set>
+#include <stdexcept>
 #include <vector>
 using namespace boost;
 
@@ -17,18 +19,16 @@ namespace py = pybind11;
 class PostDominatorTree {
   size_t num_nodes;
   const int32_t *edges;
-  std::vector<float> weights;
   const bool *cf_status;
-  BiDiGraph cfg;
-  BiDiGraph dtree;
-  uint32_t exit_node;
   std::vector<int32_t> ipdom;
+  std::vector<std::vector<uint32_t>> components;
   typedef boost::graph_traits<BiDiGraph>::vertex_descriptor Vertex;
   typedef boost::property_map<BiDiGraph, boost::vertex_index_t>::type IndexMap;
   typedef boost::iterator_property_map<std::vector<Vertex>::iterator, IndexMap>
       PredMap;
 
-  uint32_t add_exit_node(BiDiGraph &cfg) {
+  uint32_t add_exit_node(BiDiGraph &cfg,
+                         const std::vector<uint32_t> &component_nodes) {
     // Calculate SCCs and component mapping
     std::vector<int> component(boost::num_vertices(cfg));
     auto index_map = boost::get(boost::vertex_index, cfg);
@@ -70,7 +70,7 @@ class PostDominatorTree {
         // For the scc with multiple nodes (a loop structure),
         // only connect the control flow instruction to the exit node.
         // Assuming cf_status is indexed by original node id (v_node)
-        if (sccs[scc_idx].size() > 1 && !cf_status[v_node]) {
+        if (sccs[scc_idx].size() > 1 && !cf_status[component_nodes[v_node]]) {
           continue;
         }
         boost::add_edge(v_node, exit_v, cfg);
@@ -79,32 +79,126 @@ class PostDominatorTree {
     return exit_v;
   }
 
-  std::tuple<BiDiGraph, uint32_t> build_reverse_dom_tree(BiDiGraph &cfg) {
-    auto exit_v = add_exit_node(cfg); // Renamed 'exit' to 'exit_v'
-    auto reverse_graph = boost::make_reverse_graph(cfg);
-    std::vector<Vertex> domTreePredVector = std::vector<Vertex>(
-        boost::num_vertices(reverse_graph), BiDiGraph::null_vertex());
+  // Helper function to find WCCs using Union-Find
+  void find_wccs() {
+    // Initialize Union-Find data structure
+    std::vector<uint32_t> parent(num_nodes);
+    std::vector<uint32_t> rank(num_nodes, 0);
+    for (uint32_t i = 0; i < num_nodes; ++i) {
+      parent[i] = i;
+    }
+
+    // Find function with path compression
+    auto find = [&parent](uint32_t x) {
+      while (parent[x] != x) {
+        parent[x] = parent[parent[x]];
+        x = parent[x];
+      }
+      return x;
+    };
+
+    // Union function with rank optimization
+    auto unite = [&parent, &rank, &find](uint32_t x, uint32_t y) {
+      x = find(x);
+      y = find(y);
+      if (x == y)
+        return;
+      if (rank[x] < rank[y]) {
+        parent[x] = y;
+      } else if (rank[x] > rank[y]) {
+        parent[y] = x;
+      } else {
+        parent[y] = x;
+        rank[x]++;
+      }
+    };
+
+    // Process all edges to build WCCs
+    for (size_t i = 0; i < num_nodes; ++i) {
+      for (size_t j = 0; j < 2; ++j) {
+        int32_t target = edges[i * 2 + j];
+        if (target != -1) {
+          unite(i, static_cast<uint32_t>(target));
+        }
+      }
+    }
+
+    // Group nodes by their component
+    std::map<uint32_t, std::vector<uint32_t>> component_map;
+    for (uint32_t i = 0; i < num_nodes; ++i) {
+      component_map[find(i)].push_back(i);
+    }
+
+    // Convert map to vector of components
+    components.reserve(component_map.size());
+    for (const auto &[_, nodes] : component_map) {
+      components.push_back(nodes);
+    }
+  }
+
+  // Helper function to build post dominator tree for a single component
+  void build_component_dom_tree(const std::vector<uint32_t> &component_nodes) {
+    // Create a subgraph for this component
+    BiDiGraph component_graph(component_nodes.size());
+    std::map<uint32_t, uint32_t>
+        node_mapping; // Maps original node IDs to component-local IDs
+
+    // Create node mapping
+    for (size_t i = 0; i < component_nodes.size(); ++i) {
+      node_mapping[component_nodes[i]] = i;
+    }
+
+    // Add edges for this component
+    for (size_t i = 0; i < component_nodes.size(); ++i) {
+      uint32_t orig_node = component_nodes[i];
+      for (size_t j = 0; j < 2; ++j) {
+        int32_t target = edges[orig_node * 2 + j];
+        if (target != -1) {
+          add_edge(i, node_mapping[target], component_graph);
+        }
+      }
+    }
+
+    // Add exit node for this component
+    auto component_exit = add_exit_node(component_graph, component_nodes);
+    auto reverse_graph = boost::make_reverse_graph(component_graph);
+
+    // Calculate dominator tree for this component
+    std::vector<Vertex> domTreePredVector(boost::num_vertices(reverse_graph),
+                                          BiDiGraph::null_vertex());
     IndexMap indexMap(get(boost::vertex_index, reverse_graph));
     PredMap domTreePredMap =
         boost::make_iterator_property_map(domTreePredVector.begin(), indexMap);
-    boost::lengauer_tarjan_dominator_tree(reverse_graph,
-                                          boost::vertex(exit_v, reverse_graph),
-                                          domTreePredMap); // Use exit_v
-    BiDiGraph dtree_local =
-        BiDiGraph(boost::num_vertices(reverse_graph)); // Renamed dtree
+
+    boost::lengauer_tarjan_dominator_tree(
+        reverse_graph, boost::vertex(component_exit, reverse_graph),
+        domTreePredMap);
+
+    // Create dominator tree for this component
     for (auto v : boost::make_iterator_range(boost::vertices(reverse_graph))) {
-      auto pred = domTreePredMap[v];
-      if (pred != BiDiGraph::null_vertex()) {
-        if (static_cast<size_t>(v) < ipdom.size()) {
-          ipdom[v] = static_cast<int32_t>(pred);
-        }
-        boost::add_edge(pred, v, dtree_local);
+      if (v == component_exit) {
+        continue;
       }
+      ipdom[component_nodes[v]] = domTreePredMap[v];
     }
-    return std::make_tuple(dtree_local, exit_v); // Use exit_v and dtree_local
   }
 
-  void propagate_weights(BiDiGraph &graph, uint32_t root) {
+  std::tuple<BiDiGraph, uint32_t>
+  recover_component_dom_tree(const std::vector<uint32_t> &component_nodes) {
+    // Witht the calculated ipdom, reconstruct the dominator tree.
+    BiDiGraph dtree(component_nodes.size());
+    uint32_t exit_node = component_nodes.size();
+
+    for (size_t i = 0; i < component_nodes.size(); ++i) {
+      if (ipdom[component_nodes[i]] != -1) {
+        add_edge(ipdom[component_nodes[i]], i, dtree);
+      }
+    }
+    return std::make_tuple(dtree, exit_node);
+  }
+
+  void propagate_weights(BiDiGraph &graph, uint32_t root,
+                         std::vector<float> &weights) {
     // Post-order DFS to calculate subtree weights
     std::vector<boost::default_color_type> colormap(num_vertices(graph));
     struct dfs_visitor : public boost::default_dfs_visitor {
@@ -130,10 +224,13 @@ class PostDominatorTree {
     boost::depth_first_search(graph, visitor, colormap.data(), root);
   }
 
-  std::vector<int32_t> prune_tree() {
-    std::set<int32_t> remaining_nodes;
+  void prune_tree(const std::vector<uint32_t> &component_nodes,
+                  std::set<uint32_t> &remaining_nodes,
+                  std::vector<float> &weights) {
+    auto [dtree, exit_node] = recover_component_dom_tree(component_nodes);
+    propagate_weights(dtree, exit_node, weights);
     if (boost::num_vertices(dtree) == 0) {
-      return {};
+      return;
     }
 
     std::queue<int32_t> q;
@@ -150,7 +247,9 @@ class PostDominatorTree {
 
       // Node is processed if it's the root OR it has positive weight.
       if (current_node_has_positive_weight || current_node == exit_node) {
-        remaining_nodes.insert(current_node);
+        if (current_node != exit_node) {
+          remaining_nodes.insert(component_nodes[current_node]);
+        }
 
         std::pair<float, uint32_t> max_weight_fallthrough = {
             0.0, static_cast<uint32_t>(-1)}; // Use uint32_t for ID
@@ -170,7 +269,8 @@ class PostDominatorTree {
             bool is_cf_child = false;
             // cf_status is for original nodes (0 to num_nodes-1)
             // exit_node (if child_node is it) is considered non-CF.
-            if (child_node < this->num_nodes && cf_status[child_node]) {
+            if (child_node < this->num_nodes &&
+                cf_status[component_nodes[child_node]]) {
               is_cf_child = true;
             }
 
@@ -181,7 +281,7 @@ class PostDominatorTree {
                 max_weight_fallthrough = {weights[child_node], child_node};
               }
             } else { // CF path
-              remaining_nodes.insert(child_node);
+              remaining_nodes.insert(component_nodes[child_node]);
               q.push(child_node);
             }
           }
@@ -189,39 +289,42 @@ class PostDominatorTree {
 
         if (max_weight_fallthrough.second != static_cast<uint32_t>(-1)) {
           uint32_t fallthrough_child_node = max_weight_fallthrough.second;
-          remaining_nodes.insert(fallthrough_child_node);
+          remaining_nodes.insert(component_nodes[fallthrough_child_node]);
           q.push(fallthrough_child_node);
         }
       }
     }
-    return std::vector<int32_t>(remaining_nodes.begin(), remaining_nodes.end());
   }
 
-
-  std::map<std::string, std::set<uint32_t>> detect_errors() {
+  void detect_errors(const std::vector<uint32_t> &component_nodes,
+                     std::map<std::string, std::set<uint32_t>> &errors,
+                     std::vector<float> &weights) {
     // Create an empty pruned tree
+    auto [dtree, exit_node] = recover_component_dom_tree(component_nodes);
     std::queue<int> q;
     q.push(exit_node);
     std::vector<bool> visited(num_vertices(dtree), false);
-    std::map<std::string, std::set<uint32_t>> errors = {
-        {"dangling", {}}, {"coexist", {}}, {"exclusive", {}}};
     std::vector<boost::default_color_type> colormap(num_vertices(dtree));
     struct dfs_visitor : public boost::default_dfs_visitor {
       std::map<std::string, std::set<uint32_t>> &errors;
       std::vector<bool> &visited;
       float *weights;
       std::vector<int32_t> &ipdom;
+      const std::vector<uint32_t> &component_nodes;
       dfs_visitor(std::map<std::string, std::set<uint32_t>> &e,
-                  std::vector<bool> &vis, float *w, std::vector<int32_t> &ip)
-          : errors(e), visited(vis), weights(w), ipdom(ip) {}
+                  std::vector<bool> &vis, float *w, std::vector<int32_t> &ip,
+                  const std::vector<uint32_t> &cn)
+          : errors(e), visited(vis), weights(w), ipdom(ip),
+            component_nodes(cn) {}
       void discover_vertex(const BiDiGraph::vertex_descriptor &v,
                            const BiDiGraph &g) {
         visited[v] = true;
-        if (weights[v] > 0 && !errors["dangling"].contains(ipdom[v])) {
-          errors["dangling"].emplace(v);
+        if (weights[v] > 0 &&
+            !errors["dangling"].contains(component_nodes[ipdom[v]])) {
+          errors["dangling"].emplace(component_nodes[v]);
         }
       }
-    } visitor(errors, visited, weights.data(), ipdom);
+    } visitor(errors, visited, weights.data(), ipdom, component_nodes);
     while (!q.empty()) {
       int node = q.front();
       q.pop();
@@ -234,14 +337,15 @@ class PostDominatorTree {
           if (weights[child_node] > 0) {
             q.push(child_node);
           }
-          if (!cf_status[child_node]) {
+          if (!cf_status[component_nodes[child_node]]) {
             if (node == exit_node) {
               boost::depth_first_visit(dtree, child_node, visitor,
                                        colormap.data());
             } else if (weights[child_node] > max_weight_fallthrough.first) {
               if (max_weight_fallthrough.first > 0.0) {
-                errors["exclusive"].emplace(child_node);
-                errors["exclusive"].emplace(max_weight_fallthrough.second);
+                errors["exclusive"].emplace(component_nodes[child_node]);
+                errors["exclusive"].emplace(
+                    component_nodes[max_weight_fallthrough.second]);
               }
               max_weight_fallthrough = {weights[child_node], child_node};
             }
@@ -251,25 +355,25 @@ class PostDominatorTree {
       }
     }
     for (auto v : boost::make_iterator_range(boost::vertices(dtree))) {
-      if (v != exit_node && weights[v] > 0 && !visited[v] && visited[ipdom[v]]) {
-        errors["coexist"].emplace(v);
+      if (v != exit_node && weights[v] > 0 && !visited[v] &&
+          visited[ipdom[v]]) {
+        errors["coexist"].emplace(component_nodes[v]);
       }
     }
-    return errors;
   }
 
 public:
   PostDominatorTree(size_t n, const int32_t *e, const bool *cf = nullptr)
-      : num_nodes(n), edges(e), weights(n + 1), cf_status(cf), ipdom(n),
-        cfg(n) {
-    for (size_t i = 0; i < n; ++i) {
-      for (size_t j = 0; j < 2; ++j) {
-        if (edges[i * 2 + j] != -1) {
-          add_edge(i, edges[i * 2 + j], cfg);
-        }
+      : num_nodes(n), edges(e), cf_status(cf), ipdom(n, -1) {
+    // Find weakly connected components directly from edges
+    find_wccs();
+
+    // Process each component separately
+    for (const auto &component_nodes : components) {
+      if (!component_nodes.empty()) {
+        build_component_dom_tree(component_nodes);
       }
     }
-    std::tie(dtree, exit_node) = build_reverse_dom_tree(cfg);
   }
   PostDominatorTree(py::array_t<int32_t> edges, py::array_t<bool> cf_status)
       : PostDominatorTree(edges.shape(0), edges.data(), cf_status.data()) {
@@ -284,11 +388,19 @@ public:
     if (weights.size() != num_nodes) {
       throw std::invalid_argument("weights size must match num_nodes");
     }
-    std::copy(weights.data(), weights.data() + num_nodes,
-              this->weights.begin());
-    propagate_weights(dtree, exit_node);
-    auto pruned_nodes = prune_tree();
-    return py::array_t<int32_t>(pruned_nodes.size(), pruned_nodes.data());
+    const float *weights_data = weights.data();
+    std::set<uint32_t> pruned_nodes;
+    for (const auto &component_nodes : components) {
+      std::vector<float> component_weights(component_nodes.size() + 1);
+      for (size_t i = 0; i < component_nodes.size(); ++i) {
+        component_weights[i] = weights_data[component_nodes[i]];
+      }
+      component_weights[component_nodes.size()] = 0;
+      prune_tree(component_nodes, pruned_nodes, component_weights);
+    }
+    auto array = py::array_t<int32_t>(pruned_nodes.size());
+    std::copy(pruned_nodes.begin(), pruned_nodes.end(), array.mutable_data());
+    return array;
   }
 
   // Return Detect errors as dict of sets
@@ -296,9 +408,17 @@ public:
     if (weights.size() != num_nodes) {
       throw std::invalid_argument("weights size must match num_nodes");
     }
-    std::copy(weights.data(), weights.data() + num_nodes,
-              this->weights.begin());
-    auto errors = detect_errors();
+    const float *weights_data = weights.data();
+    std::map<std::string, std::set<uint32_t>> errors = {
+        {"dangling", {}}, {"coexist", {}}, {"exclusive", {}}};
+    for (const auto &component_nodes : components) {
+      std::vector<float> component_weights(component_nodes.size() + 1);
+      for (size_t i = 0; i < component_nodes.size(); ++i) {
+        component_weights[i] = weights_data[component_nodes[i]];
+      }
+      component_weights[component_nodes.size()] = 0;
+      detect_errors(component_nodes, errors, component_weights);
+    }
     py::dict result;
     for (const auto &[key, value] : errors) {
       auto array = py::array_t<int32_t>(value.size());
@@ -308,6 +428,3 @@ public:
     return result;
   }
 };
-// extern py::array_t<int32_t> process_graph_boost(py::array_t<int32_t> edges,
-//                                                 py::array_t<float> weights,
-//                                                 py::array_t<bool> cf_status);
