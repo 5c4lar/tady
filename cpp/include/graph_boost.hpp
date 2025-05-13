@@ -319,8 +319,7 @@ class PostDominatorTree {
       void discover_vertex(const BiDiGraph::vertex_descriptor &v,
                            const BiDiGraph &g) {
         visited[v] = true;
-        if (weights[v] > 0 &&
-            !errors["dangling"].contains(component_nodes[ipdom[component_nodes[v]]])) {
+        if (weights[v] > 0 && !visited[ipdom[component_nodes[v]]]) {
           errors["dangling"].emplace(component_nodes[v]);
         }
       }
