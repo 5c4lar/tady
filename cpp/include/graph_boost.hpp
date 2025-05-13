@@ -107,12 +107,8 @@ class PostDominatorTree {
   void propagate_weights(BiDiGraph &graph, uint32_t root) {
     // Post-order DFS to calculate subtree weights
     std::vector<boost::default_color_type> colormap(num_vertices(graph));
-    // std::unordered_map<uint32_t, float> subtree_weights;
     struct dfs_visitor : public boost::default_dfs_visitor {
       // Dictionary to store maximum weight of subtree rooted at each node
-      // std::unordered_map<uint32_t, float> &subtree_weights;
-      // dfs_visitor(std::unordered_map<uint32_t, float> &weights)
-      //     : subtree_weights(weights) {}
       float *weights;
       dfs_visitor(float *w) : weights(w) {}
       void finish_vertex(const BiDiGraph::vertex_descriptor &v,
@@ -128,8 +124,6 @@ class PostDominatorTree {
           }
         }
         // Calculate the weight of the subtree rooted at this node
-        // subtree_weights[v] = std::max(0.0, total_weight +
-        // child_subtree_weight);
         weights[v] = std::max(0.0, total_weight + child_subtree_weight);
       }
     } visitor(weights.data());
@@ -203,52 +197,31 @@ class PostDominatorTree {
     return std::vector<int32_t>(remaining_nodes.begin(), remaining_nodes.end());
   }
 
-  void deduplicate_errors(std::map<std::string, std::set<uint32_t>> &erros) {
-    // Deduplicate consecutive errors to avoid too many warnings for a single
-    // miss
-    for (auto &[name, content] : erros) {
-      std::set<uint32_t> kept;
-      for (auto addr : content) {
-        auto successors =
-            boost::make_iterator_range(boost::out_edges(addr, cfg));
-        bool duplicated = false;
-        for (auto successor : successors) {
-          if (content.contains(boost::target(successor, cfg))) {
-            duplicated = true;
-            break;
-          }
-        }
-        if (!duplicated) {
-          kept.insert(addr);
-        }
-      }
-      content = kept;
-    }
-  }
 
   std::map<std::string, std::set<uint32_t>> detect_errors() {
     // Create an empty pruned tree
     std::queue<int> q;
     q.push(exit_node);
-    std::map<uint32_t, bool> visited;
+    std::vector<bool> visited(num_vertices(dtree), false);
     std::map<std::string, std::set<uint32_t>> errors = {
         {"dangling", {}}, {"coexist", {}}, {"exclusive", {}}};
     std::vector<boost::default_color_type> colormap(num_vertices(dtree));
     struct dfs_visitor : public boost::default_dfs_visitor {
       std::map<std::string, std::set<uint32_t>> &errors;
-      std::map<uint32_t, bool> &visited;
+      std::vector<bool> &visited;
       float *weights;
+      std::vector<int32_t> &ipdom;
       dfs_visitor(std::map<std::string, std::set<uint32_t>> &e,
-                  std::map<uint32_t, bool> &vis, float *w)
-          : errors(e), visited(vis), weights(w) {}
+                  std::vector<bool> &vis, float *w, std::vector<int32_t> &ip)
+          : errors(e), visited(vis), weights(w), ipdom(ip) {}
       void discover_vertex(const BiDiGraph::vertex_descriptor &v,
                            const BiDiGraph &g) {
         visited[v] = true;
-        if (weights[v] > 0) {
+        if (weights[v] > 0 && !errors["dangling"].contains(ipdom[v])) {
           errors["dangling"].emplace(v);
         }
       }
-    } visitor(errors, visited, weights.data());
+    } visitor(errors, visited, weights.data(), ipdom);
     while (!q.empty()) {
       int node = q.front();
       q.pop();
@@ -278,11 +251,10 @@ class PostDominatorTree {
       }
     }
     for (auto v : boost::make_iterator_range(boost::vertices(dtree))) {
-      if (v != exit_node && weights[v] > 0 && !visited[v]) {
+      if (v != exit_node && weights[v] > 0 && !visited[v] && visited[ipdom[v]]) {
         errors["coexist"].emplace(v);
       }
     }
-    deduplicate_errors(errors);
     return errors;
   }
 
