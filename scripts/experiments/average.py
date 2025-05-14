@@ -5,6 +5,14 @@ import hydra
 import pathlib
 from omegaconf import DictConfig, OmegaConf
 
+def parse_rw_opts(task):
+    parts = task.split("/")
+    proj = parts[0]
+    compiler = parts[1]
+    opt = parts[2]
+    arch = "x86" if '32' in compiler else "x64"
+    return (proj, compiler, opt, arch)
+
 def parse_x86_sok_opts(task):
     # Parse the task string to extract dataset, compiler, and optimization level
     # Example: "linux/utils/binutils/gcc_m32_Os/elfedit.json", "linux/utils/binutils/gcc_Os/elfedit.json"
@@ -63,6 +71,8 @@ def main(args: DictConfig):
             opt = parse_quarks_opts(task)
         elif args.test_dataset == "llvm-test-suite-gtirb":
             opt = str(parts[:2]) if "SPEC" not in parts else str([parts[0], parts[3] if not ('2006' in parts[3] or '2017' in parts[3]) else '2017' if '2017' in parts[3] else '2006'])
+        elif args.test_dataset == "rw":
+            opt = parse_rw_opts(task)
         else:
             opt = "all"
         total_precision[opt] += values["precision"] * values["total"]

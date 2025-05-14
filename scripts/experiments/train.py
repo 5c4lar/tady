@@ -15,7 +15,7 @@ from omegaconf import DictConfig, OmegaConf
 from pyarrow import parquet as pq
 
 import wandb
-from tady.model.tagnn_flax import *
+from tady.model.tady_flax import *
 from tady.utils.loader import chunk_data
 from tady import cpp
 

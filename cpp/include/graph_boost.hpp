@@ -383,6 +383,14 @@ public:
     return py::array_t<int32_t>(num_nodes, ipdom.data());
   }
 
+  py::array_t<int32_t> get_components_size() {
+    py::array_t<int32_t> sizes(components.size());
+    for (size_t i = 0; i < components.size(); ++i) {
+      sizes.mutable_at(i) = components[i].size();
+    }
+    return sizes;
+  }
+
   py::array_t<int32_t> prune(py::array_t<float> weights) {
     if (weights.size() != num_nodes) {
       throw std::invalid_argument("weights size must match num_nodes");

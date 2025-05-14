@@ -21,3 +21,4 @@ wandb/
 archive/
 uv.lock
 multirun/
+artifacts/

@@ -8,7 +8,7 @@ import tensorflow as tf
 from flax import nnx
 from jax.experimental import jax2tf
 from omegaconf import DictConfig
-from tady.model.tagnn_flax import *
+from tady.model.tady_flax import *
 
 
 def convert_jax_value(x):

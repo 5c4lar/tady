@@ -4,10 +4,11 @@ from multiprocessing.pool import ThreadPool as Pool
 import grpc
 import hydra
 from omegaconf import DictConfig, OmegaConf
-from tensorflow_serving.apis import predict_pb2, prediction_service_pb2_grpc
 from tqdm import tqdm
 from tady.utils.loader import preprocess_binary
 import tensorflow as tf
+from tensorflow_serving.apis import predict_pb2, prediction_service_pb2_grpc
+
 import numpy as np
 from typing import List
 from tady import cpp
@@ -100,10 +101,10 @@ def main(args: DictConfig):
     root_dir = pathlib.Path(args.dir)
     output = pathlib.Path(args.output) / model_id
     channel = grpc.insecure_channel(f"{args.host}:{args.port}")
-    stub = prediction_service_pb2_grpc.PredictionServiceStub(channel)
     model = args.model_id if args.model_id else model_id
     print(f"Testing {model} on {root_dir}")
     files = [i for i in root_dir.rglob("*") if i.is_file()]
+    stub = prediction_service_pb2_grpc.PredictionServiceStub(channel)
     with Pool(args.process) as pool, tqdm(total=len(files)) as pbar:
         for result in pool.imap_unordered(process_file, [(args, file, output, model, stub) for file in files]):
             pbar.update()
