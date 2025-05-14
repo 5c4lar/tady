@@ -1,3 +1,5 @@
 name: curl
 source_dir: /work/data/source/curl-8.13.0
-configure32: ${project.source_dir}/configure
+type: autotools
+configure64: ${project.source_dir}/configure --with-openssl
+configure32: ${project.source_dir}/configure --with-openssl --host=i686-pc-linux-gnu --build=i686-pc-linux-gnu

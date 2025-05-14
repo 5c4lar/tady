@@ -1,3 +1,5 @@
 name: openssl
-source_dir: /work/data/source/openssl-3.5.0
-configure: ${project.source_dir}/configure
+source_dir: /work/data/source/openssl-openssl-3.5.0
+type: autotools
+configure64: ${project.source_dir}/config
+configure32: ${project.source_dir}/config linux-x86

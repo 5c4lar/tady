@@ -1,3 +1,5 @@
 name: putty
 source_dir: /work/data/source/putty-0.83
-configure: ${project.source_dir}/configure
+type: cmake
+configure64: ${project.source_dir}
+configure32: ${project.source_dir}

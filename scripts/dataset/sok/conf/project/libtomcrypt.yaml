@@ -1,3 +1,6 @@
 name: libtomcrypt
 source_dir: /work/data/source/libtomcrypt-1.18.2
-configure: ${project.source_dir}/configure
+type: makefile
+configure64: cp -r ${project.source_dir}/*
+configure32: cp -r ${project.source_dir}/*
+target: library all_test
