@@ -42,9 +42,14 @@ def parse_x86_sok_opts(task):
 def parse_quarks_opts(task):
     # Parse the task string to extract obfuscator, obfuscation type, and optimization level
     # Example: freetype/obfuscated/ollvm/opaque/100/freetype_ollvm_clang14_x64_opaque_100_5_O0.exe.json
+    # Or sources: freetype/sources/freetype_clang14_x64_O0.exe
     parts = task.split("/")
-    obfuscator = parts[2]
-    obfuscation_type = parts[3]
+    if len(parts) < 4:
+        obfuscator = "None"
+        obfuscation_type = "None"
+    else:
+        obfuscator = parts[2]
+        obfuscation_type = parts[3]
     obfuscation_level = parts[-1].split(".")[0].split("_")[-1]
     return (obfuscator, obfuscation_type, obfuscation_level)
 

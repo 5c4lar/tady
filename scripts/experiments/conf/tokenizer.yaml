@@ -1,0 +1,5 @@
+work_dir: ${hydra:runtime.cwd}
+dataset: x86_dataset
+output: ${work_dir}/tokenizer.json
+dataset_dir: ${work_dir}/data/processed/${dataset}
+num_samples: null

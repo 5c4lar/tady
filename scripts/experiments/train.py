@@ -13,13 +13,13 @@ import tqdm
 from flax import nnx
 from omegaconf import DictConfig, OmegaConf
 from pyarrow import parquet as pq
-
+from transformers import PreTrainedTokenizerFast
 import wandb
 from tady.model.tady_flax import *
 from tady.utils.loader import chunk_data
 from tady import cpp
-
-
+from functools import partial
+import random
 @nnx.jit(static_argnames=["deterministic"])
 def forward_jax(model, batch, rngs=None, deterministic=True):
     output = model(batch['bytes'].astype(jnp.uint8), is_64=batch['is_64'], deterministic=deterministic,
@@ -30,6 +30,13 @@ def forward_jax(model, batch, rngs=None, deterministic=True):
 @nnx.jit(static_argnames=["deterministic"])
 def forward_cpp(model, batch, rngs=None, deterministic=True):
     output = model(batch['bytes'].astype(jnp.uint8), is_64=batch['is_64'], instr_len=batch['instr_len'].astype(jnp.uint8), control_flow=batch['control_flow'].astype(jnp.int32),
+                   deterministic=deterministic,
+                   rngs=rngs).logits.squeeze(-1)
+    return output
+
+@nnx.jit(static_argnames=["deterministic"])
+def forward_token(model, batch, rngs=None, deterministic=True):
+    output = model(batch['input_ids'].astype(jnp.int32), is_64=batch['is_64'].squeeze(-1), instr_len=batch['instr_len'].astype(jnp.uint8), connections=batch['connections'].astype(jnp.int32),
                    deterministic=deterministic,
                    rngs=rngs).logits.squeeze(-1)
     return output
@@ -108,13 +115,12 @@ def to_chunks(examples):
 
 
 class Disassembler:
-    def __init__(self, arch: str):
+    def __init__(self):
         self.disassembler = None
-        self.arch = arch
 
     def __call__(self, example):
         if self.disassembler is None:
-            self.disassembler = cpp.Disassembler(self.arch)
+            self.disassembler = cpp.Disassembler()
         instr_len, _, control_flow, _ = self.disassembler.superset_disasm(
             example["bytes"], example["is_64"])
         return {
@@ -122,6 +128,45 @@ class Disassembler:
             "control_flow": control_flow
         }
 
+class Tokenizer:
+    def __init__(self, tokenizer: PreTrainedTokenizerFast):
+        self.tokenizer = tokenizer
+        self.disassembler = None
+        
+    def overlapping_addresses(self,instr_len):
+        '''
+        Calculate the overlapping addresses for the instruction.
+
+        Args:
+            instr_len: A numpy array of shape [L] containing the instruction length
+        Returns:
+            A numpy array of shape [L, 14] containing the overlapping addresses
+        '''
+        offset = np.arange(0, instr_len.shape[0])
+        ranges = np.arange(1, 15)
+        overlapping = np.where(instr_len[:, np.newaxis] > ranges[np.newaxis, :],
+                                offset[:, np.newaxis] + ranges[np.newaxis, :], -1)
+        return overlapping
+        
+    def __call__(self, example):
+        if self.disassembler is None:
+            self.disassembler = cpp.Disassembler()
+        instr_len, _, control_flow, _ = self.disassembler.superset_disasm(
+            example["bytes"], example["is_64"])
+        overlappings = self.overlapping_addresses(instr_len)
+        asms = self.disassembler.disasm_to_str(example["bytes"], example["is_64"], 0)
+        res = self.tokenizer(asms, max_length=16, padding="max_length", truncation=True)
+        input_ids = np.array(res["input_ids"])
+        token_len = np.array(res["attention_mask"]).sum(axis=-1)
+        connections = np.concatenate([control_flow, overlappings], axis=-1)
+        return {
+            "input_ids": input_ids,
+            "instr_len": token_len,
+            "connections": connections,
+            "is_64": example["is_64"],
+            "labels": example["labels"],
+            "mask": example["mask"]
+        }
 
 def numpy_collate(x):
     return {key: np.stack([i[key] for i in x]) for key in x[0]}
@@ -172,12 +217,20 @@ def main(args: DictConfig):
         ds = load_parquets(args.dataset_dir)
     else:
         ds = datasets.load_from_disk(args.dataset_dir)
+        num_samples = args.num_samples if args.num_samples is not None else len(ds)
+        ds = ds.shuffle(seed=0).take(num_samples)
         ds.set_format(type="numpy")
         ds = ds.map(to_chunks, num_proc=args.process, batched=True,
                     batch_size=1, remove_columns=ds.column_names)
         if args.model.disassembler == "cpp":
-            disassembler = Disassembler("x86_64")
+            disassembler = Disassembler()
             ds = ds.map(disassembler, num_proc=args.process)
+        if args.model.disassembler == "token":
+            tokenizer_fast = PreTrainedTokenizerFast(tokenizer_file=args.tokenizer, clean_up_tokenization_spaces=False)
+            tokenizer = Tokenizer(tokenizer_fast)
+            ds = ds.map(tokenizer, num_proc=args.process, remove_columns=ds.column_names, writer_batch_size=100)
+            ds.set_format(type="numpy")
+            
     # split to train and test
     ds_dict = ds.train_test_split(0.1, 0.9, seed=42)
     ds_dict.set_format("np")
@@ -193,15 +246,20 @@ def main(args: DictConfig):
         num_epochs=args.epoch,
         shuffle=False,
         seed=0)
+    # read_options = grain.ReadOptions(num_threads=1, prefetch_buffer_size=500)
     train_dataloader = grain.DataLoader(
         data_source=train_ds,
         sampler=train_sampler,
-        worker_count=args.process
+        # read_options=read_options,
+        worker_count=4,
+        worker_buffer_size=100
     )
     val_dataloader = grain.DataLoader(
         data_source=test_ds,
         sampler=test_sampler,
-        worker_count=args.process
+        # read_options=read_options,
+        worker_count=4,
+        worker_buffer_size=100
     )
 
     rngs = nnx.Rngs(params=jax.random.key(
@@ -234,6 +292,13 @@ def main(args: DictConfig):
             rngs=rngs
         )
         forward_fn = forward_jax
+    elif args.model.disassembler == "token":
+        model = FlaxLlamaForTokenClassification(
+            config,
+            dtype=dtype,
+            rngs=rngs
+        )
+        forward_fn = forward_token
     else:
         raise ValueError(f"Invalid disassembler: {args.disassembler}")
 

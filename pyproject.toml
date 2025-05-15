@@ -27,10 +27,6 @@ dependencies = [
     "numpy",
     "hydra-core",
     "hydra-joblib-launcher",
-]
-
-[project.optional-dependencies]
-training = [
     "jax[cuda12]",
     "flax[all]",
     "grain",
@@ -42,8 +38,6 @@ training = [
     "tensorflow-cpu",
     "tensorflow-serving-api",
     "numpy",
-]
-plot = [
     "matplotlib",
 ]
 
@@ -55,8 +49,8 @@ package-dir = {"" = "python"}
 
 [tool.scikit-build]
 cmake.build-type = "Release"
-install.strip = false
 cmake.args = ["-DTADY_ENABLE_CPP=ON"]
+install.strip = false
 
 [dependency-groups]
 dev = [

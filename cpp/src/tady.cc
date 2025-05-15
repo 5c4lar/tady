@@ -15,7 +15,8 @@ PYBIND11_MODULE(tady_cpp, m) {
       .def("get_errors", &PostDominatorTree::get_errors)
       .def("get_components_size", &PostDominatorTree::get_components_size);
   py::class_<Disassembler>(m, "Disassembler")
-      .def(py::init<std::string>(), py::arg("triple"))
+      .def(py::init<>())
       .def("superset_disasm", &Disassembler::superset_disasm)
-      .def("flow_kind", &Disassembler::flow_kind);
+      .def("flow_kind", &Disassembler::flow_kind)
+      .def("disasm_to_str", &Disassembler::disasm_to_str);
 }

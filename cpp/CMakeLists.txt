@@ -50,7 +50,7 @@ endif()
 
 include_directories(include)
 # Rename the module to tady_cpp to match Python import conventions
-pybind11_add_module(tady_cpp src/tady.cc)
+pybind11_add_module(tady_cpp src/tady.cc src/mc_disasm.cc)
 target_link_libraries(tady_cpp PRIVATE LLVM)
 target_compile_options(tady_cpp PRIVATE -static-libstdc++)
 

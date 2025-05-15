@@ -15,7 +15,7 @@ def process_file(arg):
     errors_path = pathlib.Path(args.errors_dir) / model_id / (str(rel_path) + ".json")
     if prune_path.exists() and errors_path.exists() and not args.overwrite:
         return
-    disassembler = cpp.Disassembler("x86_64")
+    disassembler = cpp.Disassembler()
     text_array, use_64_bit, base_addr = load_text(file)
     instr_len, flow_kind, control_flow, successors = disassembler.superset_disasm(text_array, use_64_bit)
     score = np.load(result_path)
@@ -45,7 +45,7 @@ def process_gt(arg):
     errors_path = pathlib.Path(args.errors_dir) / "gt" / (str(rel_path) + ".json")
     if prune_path.exists() and errors_path.exists() and not args.overwrite:
         return
-    disassembler = cpp.Disassembler("x86_64")
+    disassembler = cpp.Disassembler()
     text_array, use_64_bit, base_addr = load_text(file)
     start, end = base_addr, base_addr + len(text_array)
     instr_len, flow_kind, control_flow, successors = disassembler.superset_disasm(text_array, use_64_bit)

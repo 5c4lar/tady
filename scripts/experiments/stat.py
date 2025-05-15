@@ -75,11 +75,14 @@ def process_file(args):
 def main(args: DictConfig):
 
     gt_root_path = pathlib.Path(args.gt)
-    model_id = "_".join([str(i) for i in args.tags])
+    model_id = "_".join([str(i) for i in args.tags]) if args.model_id is None else args.model_id
     output_path = pathlib.Path(args.output) / (model_id + ".json")
     # if output_path.exists():
     #     return
-    input_root_path = pathlib.Path(args.input) / model_id
+    if args.prune:
+        input_root_path = pathlib.Path(args.prune_dir) / model_id
+    else:
+        input_root_path = pathlib.Path(args.input) / model_id
     print(gt_root_path, input_root_path)
     if gt_root_path.is_file() and input_root_path.is_file():
         process_file((gt_root_path, gt_root_path, input_root_path))

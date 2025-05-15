@@ -1,11 +1,11 @@
 #pragma once
+#include "mc_disasm.hpp"
 #include "x86DisassemblerDecoder.hpp"
 #include "x86FlowKind.hpp"
 #include <llvm/MC/MCInstrInfo.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
-#include <mutex>
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 
@@ -13,31 +13,14 @@ namespace py = pybind11;
 using namespace llvm;
 using namespace llvm::X86Disassembler;
 
-static std::once_flag disassembler_initialized;
-
-static void initialize_disassemblers() {
-  llvm::InitializeAllTargets();
-  llvm::InitializeAllTargetInfos();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllAsmParsers();
-  llvm::InitializeAllAsmPrinters();
-  llvm::InitializeAllDisassemblers();
-}
-
 class Disassembler {
-  std::unique_ptr<llvm::MCInstrInfo> MII;
+  std::unique_ptr<DisassemblerBase> mc_disasm_x86;
+  std::unique_ptr<DisassemblerBase> mc_disasm_x64;
 
 public:
-  Disassembler(std::string triple_str) {
-    std::call_once(disassembler_initialized, initialize_disassemblers);
-    std::string lookup_target_error;
-    auto triple = llvm::Triple(llvm::Triple::normalize(triple_str));
-    auto target = llvm::TargetRegistry::lookupTarget(triple.getTriple(),
-                                                     lookup_target_error);
-    if (!target) {
-      throw std::runtime_error(lookup_target_error);
-    }
-    MII.reset(target->createMCInstrInfo());
+  Disassembler() {
+    mc_disasm_x86.reset(create_disassembler("i686", "", "", "superset"));
+    mc_disasm_x64.reset(create_disassembler("x86_64", "", "", "superset"));
   }
 
   std::optional<InternalInstruction>
@@ -48,10 +31,12 @@ public:
     Insn.startLocation = Address;
     Insn.readerCursor = Address;
     Insn.mode = fMode;
+    auto &mc_disasm =
+        fMode == DisassemblerMode::MODE_32BIT ? mc_disasm_x86 : mc_disasm_x64;
 
     if (Bytes.empty() || readPrefixes(&Insn) || readOpcode(&Insn) ||
-        getInstructionID(&Insn, MII.get()) || Insn.instructionID == 0 ||
-        readOperands(&Insn)) {
+        getInstructionID(&Insn, mc_disasm->get_instruction_info()) ||
+        Insn.instructionID == 0 || readOperands(&Insn)) {
       return std::nullopt;
     }
     Insn.operands = x86OperandSets[Insn.spec->operands];
@@ -59,10 +44,15 @@ public:
     return Insn;
   }
 
-  std::optional<uint64_t> get_branch_target(const InternalInstruction &Insn) {
+  std::optional<uint64_t> get_branch_target(const InternalInstruction &Insn,
+                                            DisassemblerMode fMode) {
+    auto &mc_disasm =
+        fMode == DisassemblerMode::MODE_32BIT ? mc_disasm_x86 : mc_disasm_x64;
     if (Insn.operands.size() == 0 ||
-        MII->get(Insn.instructionID).operands()[0].OperandType !=
-            MCOI::OPERAND_PCREL)
+        mc_disasm->get_instruction_info()
+                ->get(Insn.instructionID)
+                .operands()[0]
+                .OperandType != MCOI::OPERAND_PCREL)
       return std::nullopt;
     auto operand = Insn.operands[0];
     uint64_t pcrel = Insn.startLocation + Insn.length;
@@ -106,7 +96,8 @@ public:
     return pcrel + immediate;
   }
 
-  std::tuple<py::array_t<uint8_t>, py::array_t<uint8_t>, py::array_t<int32_t>, py::array_t<int32_t>>
+  std::tuple<py::array_t<uint8_t>, py::array_t<uint8_t>, py::array_t<int32_t>,
+             py::array_t<int32_t>>
   superset_disasm(py::array_t<uint8_t> Bytes, bool is64) {
     ArrayRef<uint8_t> Buffer =
         ArrayRef<uint8_t>(Bytes.data(), Bytes.data() + Bytes.size());
@@ -157,9 +148,16 @@ public:
         // Populate instrlen_flowkind: [length, flow_kind]
         instrlen_ptr[current_row_idx] = static_cast<uint8_t>(insn.length);
         flow_kind_ptr[current_row_idx] = flow_kind_for_array;
-        auto target_opt = get_branch_target(insn);
-        int32_t branch_target = target_opt ? static_cast<int32_t>(*target_opt) : -1;
-        branch_target = (branch_target >= num_bytes || branch_target < 0) ? -1 : branch_target;
+        auto target_opt = get_branch_target(insn, mode);
+        int32_t branch_target =
+            target_opt ? static_cast<int32_t>(*target_opt) : -1;
+        if (!target_opt &&
+            (flow_kind_enum == eInstructionControlFlowKindJump)) {
+          flow_kind_ptr[current_row_idx] = 10;
+        }
+        branch_target = (branch_target >= num_bytes || branch_target < 0)
+                            ? -1
+                            : branch_target;
         // Populate control_flow: [must_transfer(1), may_transfer(2),
         // next_addr(1), target_addr(1)] insn.readerCursor is the offset of the
         // next instruction from the start of the buffer.
@@ -192,7 +190,7 @@ public:
         }
       } else {
         // Failed to disassemble at offset i
-        instrlen_ptr[current_row_idx] = 0; // Length 0
+        instrlen_ptr[current_row_idx] = 0;  // Length 0
         flow_kind_ptr[current_row_idx] = 0; // Store flow kind from raw bytes
       }
     }
@@ -208,6 +206,29 @@ public:
       InstructionControlFlowKind flow_kind =
           GetControlFlowKind(is64, Buffer.data() + i, Buffer.size() - i);
       result_ptr[i] = flow_kind;
+    }
+    return result;
+  }
+
+  // return a list of strings of instructions to python
+  py::list disasm_to_str(py::array_t<uint8_t> Bytes, bool is64,
+                         uint64_t address) {
+    auto &mc_disasm = is64 ? mc_disasm_x64 : mc_disasm_x86;
+    ArrayRef<uint8_t> Buffer =
+        ArrayRef<uint8_t>(Bytes.data(), Bytes.data() + Bytes.size());
+    py::list result;
+    for (int i = 0; i < Buffer.size(); i++) {
+      uint64_t insn_size = 0;
+      auto instr =
+          mc_disasm->disassemble(Buffer.slice(i), address + i, insn_size);
+      if (instr) {
+        std::string instr_str = mc_disasm->print_inst(*instr, 0, insn_size);
+        // remove the leading "\t"
+        instr_str.erase(0, 1);
+        result.append(instr_str);
+      } else {
+        result.append("invalid");
+      }
     }
     return result;
   }

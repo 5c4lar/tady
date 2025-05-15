@@ -1,6 +1,21 @@
 import lief
 import numpy as np
 
+def len_to_overlappings(instr_len):
+    '''
+    Calculate the overlapping addresses for the instruction.
+
+    Args:
+        instr_len: A numpy array of shape [L] containing the instruction length
+    Returns:
+        A numpy array of shape [L, 14] containing the overlapping addresses
+    '''
+    offset = np.arange(0, instr_len.shape[0])
+    ranges = np.arange(1, 15)
+    overlapping = np.where(instr_len[:, np.newaxis] > ranges[np.newaxis, :],
+                            offset[:, np.newaxis] + ranges[np.newaxis, :], -1)
+    return overlapping
+
 def chunk_data(byte_sequence, seq_len, window_size, gt=None):
     """
     Turns a byte sequence into chunks of seq_len with window_size overlap.
