@@ -2,6 +2,7 @@ defaults:
   - _self_
   - connections: all
   - model: default
+  - dataset: mix
 work_dir: ${hydra:runtime.cwd}
 tokenizer: ${work_dir}/tokenizer.json
 batch_size: 32
@@ -17,7 +18,7 @@ model_id: null
 tags:
   - ${label}
   - ${model.disassembler}
-  - ${dataset}
+  - ${dataset.name}
   - ${model.attention}
   - ${connections.name}
   - ${model.window_size}w

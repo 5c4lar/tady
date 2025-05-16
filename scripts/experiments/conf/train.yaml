@@ -2,9 +2,9 @@ defaults:
   - _self_
   - connections: all
   - model: default
+  - dataset: mix
 work_dir: ${hydra:runtime.cwd}
-dataset: llvm-test-suite-gtirb
-dataset_dir: ${work_dir}/data/processed/${dataset}
+dataset_dir: ${work_dir}/data/processed/
 processed: true
 tokenizer: ${work_dir}/tokenizer.json
 batch_size: 64
@@ -20,7 +20,7 @@ dataset_format: datasets # datasets or parquet
 tags:
   - ${label}
   - ${model.disassembler}
-  - ${dataset}
+  - ${dataset.name}
   - ${model.attention}
   - ${connections.name}
   - ${model.window_size}w

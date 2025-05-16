@@ -39,6 +39,7 @@ dependencies = [
     "tensorflow-serving-api",
     "numpy",
     "matplotlib",
+    "quokka-project",
 ]
 
 [project.urls]

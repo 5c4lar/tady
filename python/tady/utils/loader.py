@@ -16,7 +16,7 @@ def len_to_overlappings(instr_len):
                             offset[:, np.newaxis] + ranges[np.newaxis, :], -1)
     return overlapping
 
-def chunk_data(byte_sequence, seq_len, window_size, gt=None):
+def chunk_data(byte_sequence, seq_len, window_size, gt=None, label_mask=None):
     """
     Turns a byte sequence into chunks of seq_len with window_size overlap.
 
@@ -25,7 +25,7 @@ def chunk_data(byte_sequence, seq_len, window_size, gt=None):
         seq_len (int): The length of each chunk.
         window_size (int): The size of the overlap window on each side of a chunk.
         gt (array-like, optional): Ground truth labels, same length as byte_sequence.
-
+        label_mask (array-like, optional): Mask, same length as byte_sequence, filter loss calculation.
     Returns:
         tuple: Depending on gt:
             - (byte_chunks_arr, labels_arr, masks_arr) if gt is provided.
@@ -50,7 +50,7 @@ def chunk_data(byte_sequence, seq_len, window_size, gt=None):
         num_chunks = 0
     else:
         # Calculate the number of chunks based on the starting positions
-        num_chunks = (n_bytes - 1) // chunk_step + 1
+        num_chunks = (n_bytes + chunk_step - 1) // chunk_step
 
     # Initialize output arrays
     byte_chunks_arr = np.zeros((num_chunks, seq_len), dtype=np.uint8)
@@ -76,16 +76,17 @@ def chunk_data(byte_sequence, seq_len, window_size, gt=None):
         # Process byte chunk
         actual_chunk_bytes = byte_sequence[start:end]
         real_len = len(actual_chunk_bytes)
-
-        if real_len > 0:
-            byte_chunks_arr[idx, :real_len] = actual_chunk_bytes
-            # The rest of byte_chunks_arr[idx] remains 0 (padding)
+        mask_chunk = np.ones(seq_len, dtype=bool)
+        if label_mask is not None:
+            mask_chunk[:real_len] = label_mask[start:start + real_len]
+            
+        byte_chunks_arr[idx, :real_len] = actual_chunk_bytes
+        # The rest of byte_chunks_arr[idx] remains 0 (padding)
 
         # Process labels
-        if real_len > 0:
-            labels_data_for_chunk = labels_array[start : start + real_len]
-            labels_arr[idx, :real_len] = labels_data_for_chunk
-            # The rest of labels_arr[idx] remains False (padding)
+        labels_data_for_chunk = labels_array[start : start + real_len]
+        labels_arr[idx, :real_len] = labels_data_for_chunk
+        # The rest of labels_arr[idx] remains False (padding)
 
         # Process mask
         # Start with mask as all True for seq_len, then mark invalid parts.
@@ -106,7 +107,7 @@ def chunk_data(byte_sequence, seq_len, window_size, gt=None):
                 # Equivalent to mask[:window_size] = False but robust
                 mask[:min(window_size, seq_len)] = False
         
-        masks_arr[idx] = mask
+        masks_arr[idx] = mask & mask_chunk
         
         current_pos_in_sequence += chunk_step
 
@@ -117,11 +118,27 @@ def chunk_data(byte_sequence, seq_len, window_size, gt=None):
     
 def load_text(file_path):
     binary = lief.parse(str(file_path))
-    text_section = binary.get_section(".text")
-    base_addr = text_section.virtual_address
-    text_bytes = bytes(text_section.content)
-    text_array = np.frombuffer(text_bytes, dtype=np.uint8)
-    use_64_bit = binary.header.machine_type == lief.ELF.ARCH.X86_64
+    match binary.format:
+        case lief.Binary.FORMATS.ELF:
+            text_section = binary.get_section(".text")
+            base_addr = text_section.virtual_address
+            text_bytes = bytes(text_section.content)
+            text_array = np.frombuffer(text_bytes, dtype=np.uint8)
+            use_64_bit = binary.header.machine_type == lief.ELF.ARCH.X86_64
+        case lief.Binary.FORMATS.MACHO:
+            text_section = binary.get_section("__text")
+            base_addr = text_section.virtual_address
+            text_bytes = bytes(text_section.content)
+            text_array = np.frombuffer(text_bytes, dtype=np.uint8)
+            use_64_bit = binary.header.cpu_type == lief.MachO.Header.CPU_TYPE.X86_64
+        case lief.Binary.FORMATS.PE:
+            text_section = binary.get_section(".text")
+            base_addr = text_section.virtual_address + binary.imagebase
+            text_bytes = bytes(text_section.content)
+            text_array = np.frombuffer(text_bytes, dtype=np.uint8)
+            use_64_bit = binary.header.machine == lief.PE.Header.MACHINE_TYPES.AMD64
+        case _:
+            raise ValueError(f"Unsupported format: {binary.format}")
     return text_array, use_64_bit, base_addr
 
 def preprocess_binary(file_path, seq_len=8192, window_size=64):

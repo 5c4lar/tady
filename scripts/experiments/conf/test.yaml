@@ -2,10 +2,10 @@ defaults:
   - _self_
   - connections: all
   - model: default
+  - dataset: mix
 work_dir: ${hydra:runtime.cwd}
 batch_size: 64
 label: instruction
-dataset: llvm-test-suite-gtirb
 test_dataset: llvm-test-suite-gtirb
 dir: ${work_dir}/data/bin/${test_dataset}
 output: ${work_dir}/data/results/${test_dataset}
@@ -16,10 +16,11 @@ host: localhost
 port: 8500
 model_id: null
 threshold: 0.
+num_samples: null
 tags:
   - ${label}
   - ${model.disassembler}
-  - ${dataset}
+  - ${dataset.name}
   - ${model.attention}
   - ${connections.name}
   - ${model.window_size}w

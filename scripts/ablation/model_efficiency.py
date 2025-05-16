@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from typing import List, Dict, Any
 from tady import cpp
 
-disassembler = cpp.Disassembler("x86_64")
+disassembler = cpp.Disassembler()
 def disassemble_batch(byte_chunks, use_64_bit):
     instr_lens = []
     control_flows = []

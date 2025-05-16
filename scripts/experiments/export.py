@@ -10,7 +10,36 @@ from jax.experimental import jax2tf
 from omegaconf import DictConfig
 from tady.model.tady_flax import *
 
+def generate_model_conf(args: DictConfig):
+    directories = list(i.name for i in pathlib.Path(args.output).glob("*") if i.is_dir())
 
+    template = \
+    """    config {{
+            name: '{name}'
+            base_path: '/models/{name}'
+            model_platform: 'tensorflow'
+        }}
+    """
+    # for i in directories:
+    #     print(template.format(name=i))
+    base_template = \
+    """model_config_list {{
+        {content}}}
+    """
+
+    batching_conf = '''max_batch_size { value: 128 }
+    batch_timeout_micros { value: 0 }
+    max_enqueued_batches { value: 1000000 }
+    num_batch_threads { value: 24 }'''
+
+    content = "".join([template.format(name=i) for i in directories])
+    # print(base_template.format(content=content))
+    with open(pathlib.Path(args.output)/"model.conf", 'w') as f:
+        f.write(base_template.format(content=content))
+        
+    with open(pathlib.Path(args.output)/"batching.conf", 'w') as f:
+        f.write(batching_conf)
+        
 def convert_jax_value(x):
     if x is None:
         return None
@@ -157,6 +186,7 @@ def main(args: DictConfig):
 
         m.predict = predict_tf
         tf.saved_model.save(m, output_path)
+    generate_model_conf(args)
     print("Done!")
 
 if __name__ == "__main__":

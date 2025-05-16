@@ -2,6 +2,8 @@ from parse_sok_pb import parse_pb
 import pathlib
 from multiprocessing import Pool
 import json
+import numpy as np
+from tady.utils.loader import load_text
 def process_file(args, file):
     rel_path = file.relative_to(root_dir)
     # print(rel_path)
@@ -10,18 +12,30 @@ def process_file(args, file):
     if not gt_file.exists():
         print(f"GT file not found: {gt_file}")
         return
-    target_path = pathlib.Path(args.output) / (str(rel_path) + ".json")
+    target_path = pathlib.Path(args.output) / (str(rel_path) + ".npz")
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    # if not target_path.exists():
+    text_array, use_64_bit, base_addr = load_text(file)
     gt = parse_pb(gt_file)
     if len(gt['instructions']) == 0:
         print(f"GT file is empty: {gt_file}")
         return
-    # print(f"{target_path}")
-    if not target_path.exists():
-        with open(target_path, "w") as f:
-            json.dump(gt, f)
-    return
+    masks = np.zeros(text_array.shape[0], dtype=np.bool_)
+    labels = np.zeros(text_array.shape[0], dtype=np.bool_)
+    points = np.array(gt['instructions'], dtype=np.uint64)
+    points = points[(points >= base_addr) & (points < base_addr + text_array.shape[0])]
+    start = min(points) - base_addr
+    end = max(points) - base_addr
+    masks[start:end] = True
+    labels[points - base_addr] = True
+    result = {
+        "text_array": text_array,
+        "labels": labels,
+        "base_addr": np.array(base_addr, dtype=np.uint64),
+        "use_64_bit": np.array(use_64_bit, dtype=np.bool_),
+        "mask": masks,
+    }
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(target_path, **result)
     
 if __name__ == "__main__":
     import argparse

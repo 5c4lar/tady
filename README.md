@@ -14,6 +14,29 @@ Use Docker
 ```bash
 docker build -t tady -f docker/Dockerfile .
 ```
+
+## Datasets
+Assemblage:
+```bash
+uv run scripts/dataset/assemblage/pdb_gt.py --bin_dir data/bin/assemblage/ --pdb_dir binaries --mapping_file scripts/dataset/assemblage/assemblage_locations.json --process 24 --output_dir data/gt_npz/assemblage --executable scripts/dataset/assemblage/pdb-markers
+```
+pangine
+```bash
+uv run  scripts/dataset/pangine/sqlite_gt.py --input data/tools/ddisasm-wis-evaluation/datasets/pangine-dataset/ --output data/gt_npz/pangine --process 24
+```
+bap
+```bash
+uv run  scripts/dataset/pangine/sqlite_gt.py --input data/tools/ddisasm-wis-evaluation/datasets/pangine-dataset/ --output data/gt_npz/pangine --process 24
+```
+quarks
+```bash
+uv run scripts/dataset/quarks/quokka_gt.py --source ../disassemble/datasets/diffing_obfuscation_dataset/data/ --target data/gt_npz/quarks --gt=True
+```
+x86_sok
+```bash
+uv run scripts/dataset/sok/parse_sok.py --dir data/bin/x86_dataset/ --pb_dir /mnt/disk/data/x86_dataset --output data/gt_npz/x86_dataset --process 24
+```
+
 ## Train
 Preprocess binary file
 ```bash

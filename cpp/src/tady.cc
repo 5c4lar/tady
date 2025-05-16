@@ -18,5 +18,6 @@ PYBIND11_MODULE(tady_cpp, m) {
       .def(py::init<>())
       .def("superset_disasm", &Disassembler::superset_disasm)
       .def("flow_kind", &Disassembler::flow_kind)
-      .def("disasm_to_str", &Disassembler::disasm_to_str);
+      .def("disasm_to_str", &Disassembler::disasm_to_str)
+      .def("linear_disasm", &Disassembler::linear_disasm);
 }

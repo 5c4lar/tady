@@ -19,7 +19,8 @@ from tady.model.tady_flax import *
 from tady.utils.loader import chunk_data
 from tady import cpp
 from functools import partial
-import random
+from io import BytesIO
+
 @nnx.jit(static_argnames=["deterministic"])
 def forward_jax(model, batch, rngs=None, deterministic=True):
     output = model(batch['bytes'].astype(jnp.uint8), is_64=batch['is_64'], deterministic=deterministic,
@@ -105,14 +106,15 @@ def eval_step(model, batch, metrics, forward_fn):
 
 def to_chunks(examples):
     results = {"bytes": [], "labels": [], "mask": [], "is_64": []}
-    for bytes, labels, is_64 in zip(examples["bytes"], examples["labels"], examples["is_64"]):
-        chunks, labels, masks = chunk_data(bytes, 8192, 64, labels)
+    for example in examples['gt']:
+        data = np.load(BytesIO(example))
+        bytes, labels, is_64, mask = data["text_array"], data["labels"], data["use_64_bit"].item(), data["mask"]
+        chunks, labels, masks = chunk_data(bytes, 8192, 64, labels, label_mask=mask)
         results["bytes"].extend(chunks.tolist())
         results["labels"].extend(labels.tolist())
         results["mask"].extend(masks.tolist())
         results["is_64"].extend([is_64] * len(chunks))
     return results
-
 
 class Disassembler:
     def __init__(self):
@@ -187,6 +189,28 @@ def load_parquets(path):
     ds = datasets.load_dataset("parquet", data_files=parquets, split="train")
     return ds
 
+def get_dataset(args, name, num_sample):
+    dataset_dir = pathlib.Path(args.dataset_dir) / name
+    print(f"Loading dataset from {dataset_dir}")
+    if args.dataset_format == "parquet":
+        ds = load_parquets(dataset_dir)
+    else:
+        ds = datasets.load_from_disk(dataset_dir)
+        num_samples = num_sample if num_sample is not None else len(ds)
+        ds = ds.shuffle(seed=0).take(num_samples)
+        
+        ds = ds.map(to_chunks, num_proc=args.process, batched=True,
+                    batch_size=1, remove_columns=ds.column_names)
+        ds.set_format(type="numpy")
+        if args.model.disassembler == "cpp":
+            disassembler = Disassembler()
+            ds = ds.map(disassembler, num_proc=args.process)
+        if args.model.disassembler == "token":
+            tokenizer_fast = PreTrainedTokenizerFast(tokenizer_file=args.tokenizer, clean_up_tokenization_spaces=False)
+            tokenizer = Tokenizer(tokenizer_fast)
+            ds = ds.map(tokenizer, num_proc=args.process, remove_columns=ds.column_names, writer_batch_size=100)
+            ds.set_format(type="numpy")
+    return ds
 
 @hydra.main(version_base=None, config_path="conf", config_name="train")
 def main(args: DictConfig):
@@ -213,23 +237,15 @@ def main(args: DictConfig):
     connections: Dict[str, Tuple[int, int]] = OmegaConf.to_container(
         args.connections.setting, resolve=True)  # type: ignore
     num_global_connections = sum([b - a for a, b in connections.values()])
-    if args.dataset_format == "parquet":
-        ds = load_parquets(args.dataset_dir)
+
+    if type(args.dataset.datasets) == str:
+        ds = get_dataset(args, args.dataset.datasets, args.num_samples)
     else:
-        ds = datasets.load_from_disk(args.dataset_dir)
-        num_samples = args.num_samples if args.num_samples is not None else len(ds)
-        ds = ds.shuffle(seed=0).take(num_samples)
-        ds.set_format(type="numpy")
-        ds = ds.map(to_chunks, num_proc=args.process, batched=True,
-                    batch_size=1, remove_columns=ds.column_names)
-        if args.model.disassembler == "cpp":
-            disassembler = Disassembler()
-            ds = ds.map(disassembler, num_proc=args.process)
-        if args.model.disassembler == "token":
-            tokenizer_fast = PreTrainedTokenizerFast(tokenizer_file=args.tokenizer, clean_up_tokenization_spaces=False)
-            tokenizer = Tokenizer(tokenizer_fast)
-            ds = ds.map(tokenizer, num_proc=args.process, remove_columns=ds.column_names, writer_batch_size=100)
-            ds.set_format(type="numpy")
+        ds_list = []
+        for name, num_sample in args.dataset.datasets.items():
+            ds_list.append(get_dataset(args, name, num_sample))
+        ds = datasets.concatenate_datasets(ds_list)
+        ds = ds.shuffle(seed=0)
             
     # split to train and test
     ds_dict = ds.train_test_split(0.1, 0.9, seed=42)
@@ -251,14 +267,14 @@ def main(args: DictConfig):
         data_source=train_ds,
         sampler=train_sampler,
         # read_options=read_options,
-        worker_count=4,
+        worker_count=args.process // 2,
         worker_buffer_size=100
     )
     val_dataloader = grain.DataLoader(
         data_source=test_ds,
         sampler=test_sampler,
         # read_options=read_options,
-        worker_count=4,
+        worker_count=args.process // 2,
         worker_buffer_size=100
     )
 

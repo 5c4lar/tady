@@ -2,6 +2,7 @@ defaults:
   - _self_
   - connections: all
   - model: default
+  - dataset: mix
 work_dir: ${hydra:runtime.cwd}
 batch_size: 32
 label: instruction
@@ -20,7 +21,7 @@ overwrite: false
 tags:
   - ${label}
   - ${model.disassembler}
-  - ${dataset}
+  - ${dataset.name}
   - ${model.attention}
   - ${connections.name}
   - ${model.window_size}w

@@ -11,7 +11,7 @@ def parse_rw_opts(task):
     compiler = parts[1]
     opt = parts[2]
     arch = "x86" if '32' in compiler else "x64"
-    return (proj, compiler, opt, arch)
+    return (compiler, opt, arch)
 
 def parse_x86_sok_opts(task):
     # Parse the task string to extract dataset, compiler, and optimization level
@@ -57,7 +57,10 @@ def parse_quarks_opts(task):
 def main(args: DictConfig):
     model_id = "_".join([str(i) for i in args.tags]) if args.model_id is None else args.model_id 
     print(model_id)
-    input_path = (pathlib.Path(args.input) / (model_id + ".json")) #if args.input_path is None else pathlib.Path(args.input_path)
+    if args.prune:
+        input_path = (pathlib.Path(args.input) / (model_id + "_pruned.json"))
+    else:
+        input_path = (pathlib.Path(args.input) / (model_id + ".json"))
     result = json.load(open(input_path, "r"))
     total_precision = defaultdict(float)
     total_recall = defaultdict(float)

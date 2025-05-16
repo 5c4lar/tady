@@ -2,6 +2,7 @@ defaults:
   - _self_
   - connections: all
   - model: default
+  - dataset: mix
 work_dir: ${hydra:runtime.cwd}
 dataset: llvm-test-suite-gtirb
 config: ${work_dir}/models/config
@@ -11,7 +12,7 @@ output: ${work_dir}/models/tf_models
 tags:
   - ${label}
   - ${model.disassembler}
-  - ${dataset}
+  - ${dataset.name}
   - ${model.attention}
   - ${connections.name}
   - ${model.window_size}w

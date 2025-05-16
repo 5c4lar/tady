@@ -232,4 +232,29 @@ public:
     }
     return result;
   }
+
+  py::array_t<int32_t> linear_disasm(py::array_t<uint8_t> Bytes, bool is64) {
+    ArrayRef<uint8_t> Buffer =
+        ArrayRef<uint8_t>(Bytes.data(), Bytes.data() + Bytes.size());
+    std::vector<int32_t> result;
+    auto &mc_disasm = is64 ? mc_disasm_x64 : mc_disasm_x86;
+    int offset = 0;
+    while (offset < Buffer.size()) {
+      uint64_t insn_size = 0;
+      auto instr = mc_disasm->disassemble(Buffer.slice(offset), offset, insn_size);
+      if (instr) {
+        result.push_back(offset);
+        offset += insn_size;
+        continue;
+      } else {
+        offset += mc_disasm->get_disassembler()->suggestBytesToSkip(Buffer.slice(offset), insn_size);
+      }
+    }
+    py::array_t<int32_t> result_array(result.size());
+    auto result_array_ptr = result_array.mutable_data();
+    for (size_t i = 0; i < result.size(); i++) {
+      result_array_ptr[i] = result[i];
+    }
+    return result_array;
+  }
 };

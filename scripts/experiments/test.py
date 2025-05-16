@@ -116,9 +116,8 @@ def process_file(arg):
     args, file, output, model, stub = arg
     if file.is_file():
         rel_path = file.relative_to(args.dir)
-        output_path = pathlib.Path(output) / rel_path / "result.json"
-        score_path = pathlib.Path(output) / rel_path / "score.npy"
-        if output_path.exists() and score_path.exists():
+        output_path = pathlib.Path(output) / (str(rel_path) + ".npz")
+        if output_path.exists():
             return
         byte_chunks, masks, use_64_bit, base_addr = preprocess_binary(file)
         batched_byte_chunks, batched_masks = batchify(
@@ -129,13 +128,14 @@ def process_file(arg):
             result = send_request(stub, model, sequence, is_64_bit, args.model.disassembler, args.tokenizer)
             logits.append(result[mask])
         logits = np.concatenate(logits, axis=0).flatten()
-        offsets = np.arange(len(logits))
-        instructions = offsets[logits > args.threshold] + base_addr
-        # print(f"Result: {result}")
+        pred = logits > args.threshold
+        result = {
+            "scores": logits,
+            "pred": pred,
+            "base_addr": np.array(base_addr, dtype=np.uint64),
+        }
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w") as f:
-            json.dump({"instructions": instructions.tolist()}, f)
-        np.save(score_path, logits)
+        np.savez(output_path, **result)
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="test")
@@ -148,6 +148,10 @@ def main(args: DictConfig):
     model = args.model_id if args.model_id else model_id
     print(f"Testing {model} on {root_dir}")
     files = [i for i in root_dir.rglob("*") if i.is_file()]
+    if args.num_samples:
+        import random
+        random.seed(0)
+        files = random.sample(files, args.num_samples)
     with Pool(args.process) as pool, tqdm(total=len(files)) as pbar:
         for result in pool.imap_unordered(process_file, [(args, file, output, model, stub) for file in files]):
             pbar.update()

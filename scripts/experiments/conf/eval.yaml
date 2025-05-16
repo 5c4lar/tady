@@ -1,0 +1,41 @@
+defaults:
+  - _self_
+  - connections: all
+  - model: default
+  - dataset: mix
+work_dir: ${hydra:runtime.cwd}
+batch_size: 64
+label: instruction
+test_dataset: llvm-test-suite-gtirb
+dir: ${work_dir}/data/gt_npz/${test_dataset}
+bin_dir: ${work_dir}/data/bin/${test_dataset}
+pred: ${work_dir}/data/pred/${test_dataset}
+output: ${work_dir}/data/eval/${test_dataset}
+stats: ${work_dir}/data/stats/${test_dataset}
+tokenizer: ${work_dir}/tokenizer.json
+process: 24
+thread: 1
+host: localhost
+port: 8500
+model_id: null
+threshold: 0.
+num_samples: null
+tags:
+  - ${label}
+  - ${model.disassembler}
+  - ${dataset.name}
+  - ${model.attention}
+  - ${connections.name}
+  - ${model.window_size}w
+  - ${model.hidden_size}h
+  - ${model.layers}l
+ida:
+  script: scripts.baselines.ida.batch_run
+ghidra:
+  script: scripts.baselines.ghidra.pyghidra_disassemble
+  ghidra_root: ${work_dir}/data/tools/ghidra
+deepdi:
+  container: deepdi
+  key: aaf9bb2902c6d7eeaf5a8c7156ab77113a9d02db46e33edaf5f66dc53f8c7caa5c0d35a18ee8197250c06cad37eca340a47d79dee0ed266355999ec358a040f1
+ddisasm:
+  container: ddisasm

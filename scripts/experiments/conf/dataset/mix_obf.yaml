@@ -1,0 +1,7 @@
+name: mix_obf
+datasets:
+  # assemblage: 500
+  quarks: 100
+  obf-benchmark-obf: 2
+  x86_dataset: 500
+  pangine: 500

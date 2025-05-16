@@ -7,7 +7,7 @@ import time
 from matplotlib import pyplot as plt
 import psutil
 import threading
-disassembler = cpp.Disassembler("x86_64")
+disassembler = cpp.Disassembler()
 
 
 def measure_peak_memory(func, *args, **kwargs):
