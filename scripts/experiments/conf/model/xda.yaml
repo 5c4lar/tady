@@ -1,0 +1,13 @@
+seq_len: 512
+attention: full
+vocab_size: 256
+hidden_size: 16
+num_attention_heads: 8
+window_size: 64
+layers: 12
+dropout: 0.1
+global_connection_class: false
+token_pool: "sum"
+dtype: float32
+disassembler: xda # cpp or jax
+successor_idx: 0

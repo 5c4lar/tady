@@ -10,25 +10,75 @@ def process_file(arg):
     args, file_path = arg
     gt_path = str(file_path).replace("/bin/", "/gt/") + ".sqlite"
     rel_path = file_path.relative_to(args.input)
-    target_path = pathlib.Path(args.output) / (str(rel_path) + ".json")
+    target_path = pathlib.Path(args.output) / (str(rel_path) + ".npz")
     conn = sqlite3.connect(gt_path)
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT offset FROM insn")
-        instructions = [i[0] for i in cursor.fetchall()]
+        # Fetch instruction offsets and their supplementary info
+        cursor.execute("SELECT offset, supplementary FROM insn ORDER BY offset")
+        all_instructions = []
+        optional_ranges = []
+        last_optional = None
+        
+        for offset, supp in cursor.fetchall():
+            is_optional = False
+            if supp:
+                supp_dict = json.loads(supp)
+                is_optional = supp_dict.get("Optional", False)
+            
+            if is_optional:
+                last_optional = offset
+            else:
+                if last_optional is not None:
+                    optional_ranges.append((last_optional, offset))
+                    last_optional = None
+            all_instructions.append(offset)
+        
+        # Fetch function ranges
+        cursor.execute("SELECT start, end FROM func")
+        function_ranges = [(start, end) for start, end in cursor.fetchall()]
     except:
         return
     finally:
         conn.close()
+    
     text_array, use_64_bit, base_addr = load_text(file_path)
     labels = np.zeros(text_array.shape[0], dtype=np.bool_)
     masks = np.zeros(text_array.shape[0], dtype=np.bool_)
-    points = np.array(instructions, dtype=np.uint64)
+    
+    # Convert instruction offsets to relative offsets
+    points = np.array(all_instructions, dtype=np.uint64)
     points = points[(points >= base_addr) & (points < base_addr + text_array.shape[0])]
-    start = min(points) - base_addr
-    end = max(points) - base_addr
-    masks[start:end] = True
-    labels[points - base_addr] = True
+    points = points - base_addr
+    
+    # Set labels for instruction starts (excluding optional ones)
+    labels[points] = True
+    
+    # Create masks for function ranges
+    for start, end in function_ranges:
+        # Convert function boundaries to relative offsets
+        rel_start = start - base_addr
+        rel_end = end - base_addr
+        
+        # Ensure boundaries are within array bounds
+        rel_start = max(0, rel_start)
+        rel_end = min(text_array.shape[0], rel_end)
+        
+        if rel_start < rel_end:
+            masks[rel_start:rel_end] = True
+    
+    # Mark optional instruction ranges as false in masks
+    for start, end in optional_ranges:
+        rel_start = start - base_addr
+        rel_end = end - base_addr
+        
+        # Ensure boundaries are within array bounds
+        rel_start = max(0, rel_start)
+        rel_end = min(text_array.shape[0], rel_end)
+        
+        if rel_start < rel_end:
+            masks[rel_start:rel_end] = False
+    
     result = {
         "text_array": text_array,
         "labels": labels,

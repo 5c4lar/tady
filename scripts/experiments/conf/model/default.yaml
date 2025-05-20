@@ -2,7 +2,6 @@ seq_len: 8192
 attention: lite
 vocab_size: 3840
 hidden_size: 16
-intermediate_size: 32
 num_attention_heads: 4
 window_size: 64
 layers: 2
@@ -11,3 +10,4 @@ global_connection_class: true
 token_pool: "rnn"
 dtype: float32
 disassembler: cpp # cpp or jax
+successor_idx: 3

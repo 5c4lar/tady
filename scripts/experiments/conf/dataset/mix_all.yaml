@@ -1,0 +1,10 @@
+name: mix
+datasets:
+  assemblage: 100
+  bap: 100
+  llvm-test-suite-gtirb: 100
+  pangine: 100
+  quarks: 100
+  rw: 100
+  x86_dataset: 100
+  obf-benchmark: 2

@@ -37,11 +37,11 @@ def f1(p, r, epsilon: float = 1e-7) -> np.ndarray:
 
 def fp(pred: np.ndarray, target: np.ndarray, mask: np.ndarray, base_addr: np.ndarray) -> np.ndarray:
     false_positives = np.where(np.logical_and(pred == 1, target == 0) & mask)[0] + base_addr
-    return false_positives
+    return false_positives.astype(np.uint64)
 
 def fn(pred: np.ndarray, target: np.ndarray, mask: np.ndarray, base_addr: np.ndarray) -> np.ndarray:
     false_negatives = np.where(np.logical_and(pred == 0, target == 1) & mask)[0] + base_addr
-    return false_negatives
+    return false_negatives.astype(np.uint64)
 
 def parse_rw_opts(task):
     parts = task.split("/")
@@ -192,9 +192,14 @@ def eval_tady(arg):
         rel_path = file.relative_to(args.dir)
         output_path = pathlib.Path(output) / rel_path
         if output_path.exists():
-            data = np.load(output_path)
+            try:
+                data = np.load(output_path)
+            except Exception as e:
+                print(f"Error loading {output_path}: {e}")
+                raise e
             p, r, t = data["precision"].item(), data["recall"].item(), data["total"].item()
             return str(rel_path.with_suffix("")), {"precision": p, "recall": r, "total": t}
+        # print(f"Disassembling {rel_path}")
         data = np.load(file)
         byte_chunks, masks = chunk_data(data["text_array"], args.model.seq_len, args.model.window_size)
         batched_byte_chunks, batched_masks = batchify(
@@ -232,16 +237,17 @@ def average_result(args, result):
     average_recall = defaultdict(float)
     for task, values in result.items():
         parts = task.split("/")
-        if args.test_dataset == "x86_dataset":
-            opt = parse_x86_sok_opts(task)
-        elif args.test_dataset == "quarks":
-            opt = parse_quarks_opts(task)
-        elif args.test_dataset == "llvm-test-suite-gtirb":
-            opt = str(parts[:2]) if "SPEC" not in parts else str([parts[0], parts[3] if not ('2006' in parts[3] or '2017' in parts[3]) else '2017' if '2017' in parts[3] else '2006'])
-        elif args.test_dataset == "rw":
-            opt = parse_rw_opts(task)
-        else:
-            opt = "all"
+        # if args.test_dataset == "x86_dataset":
+        #     opt = parse_x86_sok_opts(task)
+        # elif args.test_dataset == "quarks":
+        #     opt = parse_quarks_opts(task)
+        # elif args.test_dataset == "llvm-test-suite-gtirb":
+        #     opt = str(parts[:2]) if "SPEC" not in parts else str([parts[0], parts[3] if not ('2006' in parts[3] or '2017' in parts[3]) else '2017' if '2017' in parts[3] else '2006'])
+        # elif args.test_dataset == "rw":
+        #     opt = parse_rw_opts(task)
+        # else:
+        #     opt = "all"
+        opt = "all"
         total_precision[opt] += values["precision"] * values["total"]
         total_recall[opt] += values["recall"] * values["total"]
         total_inst[opt] += values["total"]
@@ -284,18 +290,23 @@ def disassemble_ghidra(args, task):
         return np.load(pred_path)
     env = os.environ.copy()
     env["GHIDRA_INSTALL_DIR"] = args.ghidra.ghidra_root
-    subprocess.run(["python", "-m", args.ghidra.script, "--dir", str(bin_dir), "--file", str(bin_path), "--output", str(pred_dir)], env=env)
+    ret = subprocess.run(
+        ["python", "-m", args.ghidra.script, "--dir", str(bin_dir), "--file", str(bin_path), "--output", str(pred_dir)],
+        env=env,
+        capture_output=True
+    )
+    if ret.returncode != 0:
+        print(f"Error disassembling {task}: {ret.stderr}")
+        return None
     return np.load(pred_path)
 
 def disassemble_deepdi(args, task):
     bin_dir = pathlib.Path("/work/data/bin") / args.test_dataset
     bin_path = bin_dir / task.with_suffix("")
-    json_path = pathlib.Path("/work/data/pred") / args.test_dataset / args.model_id
-    json_path_host = pathlib.Path(args.pred) / args.model_id / task.with_suffix(".json")
-    if json_path_host.exists():
-        with open(json_path_host, "r") as f:
-            instructions = json.load(f)
-            return instructions
+    np_path = pathlib.Path("/work/data/pred_strip") / args.test_dataset / args.model_id
+    np_path_host = pathlib.Path(args.pred) / args.model_id / task.with_suffix(".npz")
+    if np_path_host.exists():
+        return np.load(np_path_host)
     cmd = [
         "docker",
         "exec",
@@ -303,18 +314,43 @@ def disassemble_deepdi(args, task):
         args.deepdi.container,
         "/bin/bash",
         "-c",
-        f"PYTHONPATH=. python3 /work/scripts/baselines/DeepDi/DeepDi.py --gpu --dir {bin_dir} --file {bin_path} --output {json_path} --key {args.deepdi.key}"
+        f"PYTHONPATH=. python3 /work/scripts/baselines/DeepDi/DeepDiLief.py --gpu --dir {bin_dir} --file '{bin_path}' --output '{np_path}' --key {args.deepdi.key}"
     ]
     subprocess.run(cmd, capture_output=True)
-    assert json_path_host.exists()
-    with open(json_path_host, "r") as f:
-        instructions = json.load(f)
-    return instructions
+    assert np_path_host.exists()
+    return np.load(np_path_host)
+
+def disassemble_deepdi_batch(args, tasks):
+    bin_dir = pathlib.Path("/work/data/bin") / args.test_dataset
+    bin_paths = [bin_dir / task.with_suffix("") for task in tasks]
+    np_path = pathlib.Path("/work/data/pred_strip") / args.test_dataset / args.model_id
+    np_paths = [np_path / task.with_suffix(".npz") for task in bin_paths]
+    np_paths_host = [pathlib.Path(args.pred) / args.model_id / task for task in tasks]
+    tasks_path = pathlib.Path("data/deepdi_tasks.json")
+    with open(tasks_path, "w") as f:
+        json.dump([str(task) for task in bin_paths], f)
+    if all(np_path_host.exists() for np_path_host in np_paths_host):
+        return
+    cmd = [
+        "docker",
+        "exec",
+        "-it",
+        args.deepdi.container,
+        "/bin/bash",
+        "-c",
+        f"PYTHONPATH=. python3 /work/scripts/baselines/DeepDi/DeepDiLief.py --gpu --dir {bin_dir} --output '{np_path}' --key {args.deepdi.key} --process {args.process} --task /work/data/deepdi_tasks.json"
+    ]
+    
+    ret = subprocess.run(cmd, capture_output=True)
+    if ret.returncode != 0:
+        print(f"Error disassembling {tasks}: {ret.stderr}")
+        exit(1)
+        return None
     
 def disassemble_ddisasm(args, task):
-    bin_dir = pathlib.Path("/work/data/bin") / args.test_dataset
+    bin_dir = pathlib.Path("/work/data/bin_strip") / args.test_dataset
     bin_path = bin_dir / task.with_suffix("")
-    json_dir = pathlib.Path("/work/data/pred") / args.test_dataset / args.model_id
+    json_dir = pathlib.Path("/work/data/pred_strip") / args.test_dataset / args.model_id
     json_path_host = pathlib.Path(args.pred) / args.model_id / task.with_suffix(".json")
     if json_path_host.exists():
         with open(json_path_host, "r") as f:
@@ -334,11 +370,25 @@ def disassemble_ddisasm(args, task):
         "--output",
         str(json_dir)
     ]
-    subprocess.run(cmd, capture_output=True)
+    subprocess.run(cmd, capture_output=True, timeout=60)  # 1 minute timeout
     assert json_path_host.exists()
     with open(json_path_host, "r") as f:
         instructions = json.load(f)["instructions"]
     return instructions
+
+def disassemble_xda(args, task):
+    bin_dir = pathlib.Path(args.bin_dir)
+    bin_path = bin_dir / task.with_suffix("")
+    pred_dir = pathlib.Path(args.pred) / args.model_id 
+    pred_path = pred_dir / task.with_suffix(".npz")
+    if pred_path.exists():
+        return np.load(pred_path)
+    subprocess.run([
+        "bash",
+        "-c",
+        f"conda run -n {args.xda.conda_env} python {args.xda.script} --gpu --file {bin_path} --dir {bin_dir} --output {pred_dir} --model_path {args.xda.model_path} --dict_path {args.xda.dict_path}",    
+    ],env={"PATH": os.environ["PATH"]},capture_output=True)
+    return np.load(pred_path)
 
 def eval_pred(arg):
     args, file, output, model = arg
@@ -346,23 +396,38 @@ def eval_pred(arg):
         rel_path = file.relative_to(args.dir)
         bin_path = pathlib.Path(args.bin_dir) / rel_path.with_suffix("")
         output_path = pathlib.Path(output) / rel_path
-        # if output_path.exists():
-        #     data = np.load(output_path)
-        #     p, r, t = data["precision"].item(), data["recall"].item(), data["total"].item()
-        #     return str(rel_path.with_suffix("")), {"precision": p, "recall": r, "total": t}
+        if output_path.exists():
+            data = np.load(output_path)
+            p, r, t = data["precision"].item(), data["recall"].item(), data["total"].item()
+            return str(rel_path.with_suffix("")), {"precision": p, "recall": r, "total": t}
         data = np.load(file)
         match model:
             case "ida":
                 pred = disassemble_ida(args, rel_path)
             case "ghidra":
-                pred = disassemble_ghidra(args, rel_path)
+                try:
+                    pred = disassemble_ghidra(args, rel_path)
+                    if pred is None:
+                        return None
+                except Exception as e:
+                    print(f"Error disassembling {rel_path}: {e}")
+                    return None
             case "deepdi":
-                instructions = disassemble_deepdi(args, rel_path)
-                points = np.array(instructions, dtype=np.uint64) - data["base_addr"]
-                points = points[(points > 0) & (points < len(data["text_array"]))]
-                pred = np.zeros(len(data["text_array"]), dtype=np.bool)
-                pred[points] = True
-                pred = {"pred": pred, "base_addr": data["base_addr"]}
+                try:
+                    pred = disassemble_deepdi(args, rel_path)
+                    logits = pred["logits"]
+                    logits = -np.log((1 / (min(logits + 1e-8, 1))) - 1)
+                    logits = -np.log((1 / (min(logits + 1e-8, 1))) - 1)
+                    pred = {"pred": pred["pred"], "logits": logits, "base_addr": pred["base_addr"]}
+                except Exception as e:
+                    print(f"Error disassembling {rel_path}: {e}")
+                    return None
+            case "xda":
+                try:
+                    pred = disassemble_xda(args, rel_path)
+                except:
+                    print(f"Error")
+                    return None
             case "ddisasm":
                 try:
                     instructions = disassemble_ddisasm(args, rel_path)
@@ -401,6 +466,10 @@ def eval_pred(arg):
 def process_pred(args, files, model):
     output = pathlib.Path(args.output) / model
     results = {}
+    if model == "deepdi":
+        rel_paths = [file.relative_to(args.dir) for file in files]
+        print("Batch disassembling deepdi")
+        disassemble_deepdi_batch(args, rel_paths)
     with Pool(args.process) as pool, tqdm(total=len(files)) as pbar:
         for result in pool.imap_unordered(eval_pred, [(args, file, output, model) for file in files]):
             if result is not None:
@@ -417,7 +486,7 @@ def main(args: DictConfig):
     model = args.model_id if args.model_id else model_id
     print(f"Testing {model} on {root_dir}")
     files = [i for i in root_dir.rglob("*.npz") if i.is_file()]
-    if args.num_samples:
+    if args.num_samples and args.num_samples < len(files):
         import random
         random.seed(0)
         files = random.sample(files, args.num_samples)

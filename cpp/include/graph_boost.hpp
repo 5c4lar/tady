@@ -22,6 +22,7 @@ class PostDominatorTree {
   const bool *cf_status;
   std::vector<int32_t> ipdom;
   std::vector<std::vector<uint32_t>> components;
+  std::vector<uint32_t> node_wcc;
   typedef boost::graph_traits<BiDiGraph>::vertex_descriptor Vertex;
   typedef boost::property_map<BiDiGraph, boost::vertex_index_t>::type IndexMap;
   typedef boost::iterator_property_map<std::vector<Vertex>::iterator, IndexMap>
@@ -79,57 +80,13 @@ class PostDominatorTree {
     return exit_v;
   }
 
-  // Helper function to find WCCs using Union-Find
-  void find_wccs() {
-    // Initialize Union-Find data structure
-    std::vector<uint32_t> parent(num_nodes);
-    std::vector<uint32_t> rank(num_nodes, 0);
-    for (uint32_t i = 0; i < num_nodes; ++i) {
-      parent[i] = i;
-    }
-
-    // Find function with path compression
-    auto find = [&parent](uint32_t x) {
-      while (parent[x] != x) {
-        parent[x] = parent[parent[x]];
-        x = parent[x];
-      }
-      return x;
-    };
-
-    // Union function with rank optimization
-    auto unite = [&parent, &rank, &find](uint32_t x, uint32_t y) {
-      x = find(x);
-      y = find(y);
-      if (x == y)
-        return;
-      if (rank[x] < rank[y]) {
-        parent[x] = y;
-      } else if (rank[x] > rank[y]) {
-        parent[y] = x;
-      } else {
-        parent[y] = x;
-        rank[x]++;
-      }
-    };
-
-    // Process all edges to build WCCs
-    for (size_t i = 0; i < num_nodes; ++i) {
-      for (size_t j = 0; j < 2; ++j) {
-        int32_t target = edges[i * 2 + j];
-        if (target != -1) {
-          unite(i, static_cast<uint32_t>(target));
-        }
-      }
-    }
-
-    // Group nodes by their component
+  void build_wcc_nodes() {
+    // build the wcc nodes
     std::map<uint32_t, std::vector<uint32_t>> component_map;
     for (uint32_t i = 0; i < num_nodes; ++i) {
-      component_map[find(i)].push_back(i);
+      uint32_t wcc_id = node_wcc[i];
+      component_map[wcc_id].push_back(i);
     }
-
-    // Convert map to vector of components
     components.reserve(component_map.size());
     for (const auto &[_, nodes] : component_map) {
       components.push_back(nodes);
@@ -340,7 +297,7 @@ class PostDominatorTree {
             if (node == exit_node) {
               boost::depth_first_visit(dtree, child_node, visitor,
                                        colormap.data());
-            } else if (weights[child_node] > max_weight_fallthrough.first) {
+            } else if (weights[child_node] >= max_weight_fallthrough.first) {
               if (max_weight_fallthrough.first > 0.0) {
                 errors["exclusive"].emplace(component_nodes[child_node]);
                 errors["exclusive"].emplace(
@@ -362,16 +319,77 @@ class PostDominatorTree {
   }
 
 public:
-  PostDominatorTree(size_t n, const int32_t *e, const bool *cf = nullptr)
-      : num_nodes(n), edges(e), cf_status(cf), ipdom(n, -1) {
-    // Find weakly connected components directly from edges
-    find_wccs();
+  static inline std::vector<uint32_t> find_wccs(uint32_t num_nodes,
+                                                const int32_t *edges) {
+    std::vector<uint32_t> node_wcc(num_nodes);
+    // Initialize Union-Find data structure
+    std::vector<uint32_t> parent(num_nodes);
+    std::vector<uint32_t> rank(num_nodes, 0);
+    for (uint32_t i = 0; i < num_nodes; ++i) {
+      parent[i] = i;
+    }
 
-    // Process each component separately
-    for (const auto &component_nodes : components) {
-      if (!component_nodes.empty()) {
-        build_component_dom_tree(component_nodes);
+    // Find function with path compression
+    auto find = [&parent](uint32_t x) {
+      while (parent[x] != x) {
+        parent[x] = parent[parent[x]];
+        x = parent[x];
       }
+      return x;
+    };
+
+    // Union function with rank optimization
+    auto unite = [&parent, &rank, &find](uint32_t x, uint32_t y) {
+      x = find(x);
+      y = find(y);
+      if (x == y)
+        return;
+      if (rank[x] < rank[y]) {
+        parent[x] = y;
+      } else if (rank[x] > rank[y]) {
+        parent[y] = x;
+      } else {
+        parent[y] = x;
+        rank[x]++;
+      }
+    };
+
+    // Process all edges to build WCCs
+    for (size_t i = 0; i < num_nodes; ++i) {
+      for (size_t j = 0; j < 2; ++j) {
+        int32_t target = edges[i * 2 + j];
+        if (target != -1) {
+          unite(i, static_cast<uint32_t>(target));
+        }
+      }
+    }
+
+    for (uint32_t i = 0; i < num_nodes; ++i) {
+      uint32_t wcc_id = find(i);
+      node_wcc[i] = wcc_id;
+    }
+    return node_wcc;
+  }
+  PostDominatorTree(size_t n, const int32_t *e, const bool *cf = nullptr,
+                    const uint32_t *wccs = nullptr,
+                    const int32_t *dom_tree = nullptr)
+      : num_nodes(n), edges(e), cf_status(cf), ipdom(n, -1), node_wcc(n) {
+    // Find weakly connected components directly from edges
+    if (wccs == nullptr) {
+      node_wcc = find_wccs(n, e);
+    } else {
+      node_wcc = std::vector<uint32_t>(wccs, wccs + n);
+    }
+    build_wcc_nodes();
+    if (dom_tree == nullptr) {
+      // Process each component separately
+      for (const auto &component_nodes : components) {
+        if (!component_nodes.empty()) {
+          build_component_dom_tree(component_nodes);
+        }
+      }
+    } else {
+      ipdom = std::vector<int32_t>(dom_tree, dom_tree + n);
     }
   }
   PostDominatorTree(py::array_t<int32_t> edges, py::array_t<bool> cf_status)
@@ -379,8 +397,34 @@ public:
     // Constructor body is now empty as initialization is done via delegation
   }
 
+  PostDominatorTree(py::array_t<int32_t> edges, py::array_t<bool> cf_status,
+                    py::array_t<uint32_t> wccs, py::array_t<int32_t> dom_tree)
+      : PostDominatorTree(edges.shape(0), edges.data(), cf_status.data(),
+                          wccs.data(), dom_tree.data()) {
+    // Constructor body is now empty as initialization is done via delegation
+  }
+
   py::array_t<int32_t> get_ipdom() {
     return py::array_t<int32_t>(num_nodes, ipdom.data());
+  }
+
+  py::array_t<uint32_t> get_wccs() {
+    return py::array_t<uint32_t>(num_nodes, node_wcc.data());
+  }
+
+  py::array_t<int32_t> get_absolute_ipdom() {
+    py::array_t<int32_t> absolute_ipdom(num_nodes);
+    auto absolute_ipdom_ptr = absolute_ipdom.mutable_data();
+    for (auto &component_nodes : components) {
+      for (auto node : component_nodes) {
+        if (ipdom[node] == component_nodes.size()) {
+          absolute_ipdom_ptr[node] = -1;
+        } else {
+          absolute_ipdom_ptr[node] = component_nodes[ipdom[node]];
+        }
+      }
+    }
+    return absolute_ipdom;
   }
 
   py::array_t<int32_t> get_components_size() {

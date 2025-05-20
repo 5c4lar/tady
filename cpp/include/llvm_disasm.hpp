@@ -171,6 +171,8 @@ public:
           successors_ptr[current_row_idx * 2 + 0] = next_addr;
           break;
         case eInstructionControlFlowKindCall:
+          control_flow_ptr[current_row_idx * 4 + 0] = next_addr;
+          break;
         case eInstructionControlFlowKindJump:
           control_flow_ptr[current_row_idx * 4 + 0] = branch_target;
           successors_ptr[current_row_idx * 2 + 0] = branch_target;
@@ -208,6 +210,19 @@ public:
       result_ptr[i] = flow_kind;
     }
     return result;
+  }
+
+  // return an instruction string at the given address
+  std::string inst_str(py::array_t<uint8_t> Bytes, bool is64, uint64_t address) {
+    auto &mc_disasm = is64 ? mc_disasm_x64 : mc_disasm_x86;
+    ArrayRef<uint8_t> Buffer =
+        ArrayRef<uint8_t>(Bytes.data(), Bytes.data() + Bytes.size());
+    uint64_t insn_size = 0;
+    auto instr = mc_disasm->disassemble(Buffer, 0, insn_size);
+    if (instr) {
+      return mc_disasm->print_inst(*instr, address, insn_size);
+    }
+    return "invalid";
   }
 
   // return a list of strings of instructions to python

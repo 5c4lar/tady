@@ -12,7 +12,7 @@ config: ${work_dir}/models/config
 label: instruction
 checkpoint: ${work_dir}/models/orbax
 wandb:
-    project: disassemble_reproduce
+    project: tady
 process: 8
 epoch: 1
 num_samples: null
@@ -26,3 +26,4 @@ tags:
   - ${model.window_size}w
   - ${model.hidden_size}h
   - ${model.layers}l
+  - ${model.successor_idx}s

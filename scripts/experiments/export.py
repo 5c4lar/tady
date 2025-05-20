@@ -67,13 +67,15 @@ def main(args: DictConfig):
     config.sliding_window = tuple(config.sliding_window)
     if args.model.disassembler == "cpp":
         model = Tady(config, dtype=dtype, rngs=rngs)
-    else:
+    elif args.model.disassembler == "jax":
         model = FlaxLlamaForBinaryTokenClassification(
             config,
             dtype=dtype,
             rngs=rngs
         )
-    if args.model.disassembler == "token":
+    elif args.model.disassembler == "xda":
+        model = XDA(config, dtype=dtype, rngs=rngs)
+    elif args.model.disassembler == "token":
         model = FlaxLlamaForTokenClassification(
             config,
             dtype=dtype,

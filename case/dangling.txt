@@ -1,0 +1,8 @@
+x86_dataset/linux/libs/clang_Of/libv8.so
+
+T 0x00ad1dcc 0001   add byte [rcx], al
+T 0x00ad1dce 0000   add byte [rax], al
+T 0x00ad1dd0 004889 add byte [rax - 0x77], cl
+T 0x00ad1dd3 d84883 fmul dword [rax - 0x7d]
+T 0x00ad1dd6 c4     invalid
+

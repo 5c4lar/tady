@@ -178,6 +178,11 @@ MapOpcodeIntoControlFlowKind(InstructionOpcodeAndModrm opcode_and_modrm) {
       }
     }
     break;
+  case 0x0b:
+    if (opcode_len == 2) {
+      return eInstructionControlFlowKindHalt;
+    }
+    break;
   default:
     break;
   }

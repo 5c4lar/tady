@@ -1,0 +1,11 @@
+x86_dataset/linux/libs/clang_O3/libv8.so
+
+T 0x00ba5078 488b0579eb20. mov rax, qword [0xdb3bf8:8]
+T 0x00ba5079 8b0579eb2000  mov eax, dword [0xdb3bf8:4]
+T 0x00ba507a 0579eb2000    add eax, 0x20eb79
+T 0x00ba507b 79eb          jns 0xba5068
+F 0x00ba507c eb20          jmp 0xba509e
+T 0x00ba507d 2000          and byte [rax], al
+F 0x00ba507e 008048010248  add byte [rax + 0x48020148], al
+T 0x00ba507f 80480102      or byte [rax + 1], 2
+

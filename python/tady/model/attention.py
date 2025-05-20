@@ -3,6 +3,7 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 import numpy as np
+from tady.model.wcc_jax import wcc_label_propagation
 
 
 @jax.jit
@@ -135,6 +136,28 @@ def get_attention(edges, sliding_window):
     return attn_mask # Shape (batch_size, sequence_length, 1, 2 * window_size + 1)
 
 @partial(jax.jit, static_argnames=("sliding_window"))
+def get_attention_wccs(edges, sliding_window):
+    """
+    Computes the attention mask based on the edges and sliding window size.
+    For each node, the mask indicates reachability to its k-th success neighbor (right part of the window)
+    and k-th prev neighbors (left part of the window).
+    This is to indicate in a superset disassemble sequence, which instructions are on the same non overlapping
+    trace within the sliding window.
+    For this variant, we first calculate the weakly connected components of the graph, the attention mask for each
+    node is the ones belong to the same weakly connected component within the sliding window.
+    return a boolean tensor of shape (batch_size, seq_len, 1, 2 * window_size + 1)
+    """
+    wcc_ids = wcc_label_propagation(edges, max_iterations=sliding_window[0]) # Shape (seq_len,)
+    # Turn wcc_ids into slices of the sliding window, using dynamic slices
+    # Get the start and end indices of each slice
+    padded_wcc_ids = jnp.pad(wcc_ids, ((sliding_window[0], sliding_window[1])), mode="constant", constant_values=-1)
+    slices = jax.vmap(lambda i: jax.lax.dynamic_slice_in_dim(padded_wcc_ids, i, sum(sliding_window) + 1, 0))(jnp.arange(edges.shape[0])) # Shape (seq_len, sum(sliding_window) + 1)
+    
+    attnention_mask = (slices == slices[:, sliding_window[0]:sliding_window[0]+1])
+    return jnp.expand_dims(attnention_mask, axis=1)
+    
+
+@partial(jax.jit, static_argnames=("sliding_window"))
 def get_attention_lite(edges, sliding_window):
     """
     Computes the attention mask based on the edges and sliding window size.
@@ -146,15 +169,16 @@ def get_attention_lite(edges, sliding_window):
     Each node at position i can attend to reachable nodes in the range [i - left_window, i + right_window].
     
     Args:
-        edges: jnp.ndarray of shape (seq_len) representing the next positions of each node
+        edges: jnp.ndarray of shape (seq_len, neighbors) representing the next positions of each node
                 in the graph. The values are indices of the neighbors, where -1 indicates no connection.
+                There are at most neighbors outgoing edges per node.
         sliding_window: Tuple of (left_window, right_window) sizes, where left_window == right_window.
         
     Returns:
         attention_mask: jnp.ndarray of shape (seq_len, 1, sum(sliding_window) + 1), boolean tensor indicating
                         which nodes can attend to which other nodes within the window.
     """
-    edges = edges[:, 3]
+    # edges = edges[:, 3]
     window_size = sliding_window[0]  # Assumes left_window == right_window
     seq_len = edges.shape[0]
 
@@ -248,3 +272,16 @@ def get_attention_lite(edges, sliding_window):
     attention_mask = attention_mask.at[:, window_size+1:].set(fwd_mask)
     
     return attention_mask.reshape((seq_len, 1, 2 * window_size + 1))
+
+
+if __name__ == "__main__":
+    test_edges = jnp.array([
+        [1, -1, -1],  # Node 0: -> 1
+        [2, -1, -1],  # Node 1: -> 2
+        [0, -1, -1],  # Node 2: -> 0
+        [4, -1, -1],  # Node 3: -> 4
+        [-1, -1, -1], # Node 4: (no outgoing, connected from 3)
+        [-1, -1, -1], # Node 5: (isolated)
+        [-1, -1, -1]  # Node 6: (isolated)
+    ], dtype=jnp.int32)
+    print(get_attention_wccs(test_edges, (1, 1)))

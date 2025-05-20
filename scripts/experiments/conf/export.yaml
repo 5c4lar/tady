@@ -18,3 +18,4 @@ tags:
   - ${model.window_size}w
   - ${model.hidden_size}h
   - ${model.layers}l
+  - ${model.successor_idx}s

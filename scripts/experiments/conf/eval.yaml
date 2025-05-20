@@ -8,9 +8,9 @@ batch_size: 64
 label: instruction
 test_dataset: llvm-test-suite-gtirb
 dir: ${work_dir}/data/gt_npz/${test_dataset}
-bin_dir: ${work_dir}/data/bin/${test_dataset}
-pred: ${work_dir}/data/pred/${test_dataset}
-output: ${work_dir}/data/eval/${test_dataset}
+bin_dir: ${work_dir}/data/bin_strip/${test_dataset}
+pred: ${work_dir}/data/pred_strip/${test_dataset}
+output: ${work_dir}/data/eval_strip/${test_dataset}
 stats: ${work_dir}/data/stats/${test_dataset}
 tokenizer: ${work_dir}/tokenizer.json
 process: 24
@@ -29,6 +29,7 @@ tags:
   - ${model.window_size}w
   - ${model.hidden_size}h
   - ${model.layers}l
+  - ${model.successor_idx}s
 ida:
   script: scripts.baselines.ida.batch_run
 ghidra:
@@ -39,3 +40,8 @@ deepdi:
   key: aaf9bb2902c6d7eeaf5a8c7156ab77113a9d02db46e33edaf5f66dc53f8c7caa5c0d35a18ee8197250c06cad37eca340a47d79dee0ed266355999ec358a040f1
 ddisasm:
   container: ddisasm
+xda:
+  script: scripts/baselines/XDA/batch_eval_lief.py
+  conda_env: xda
+  model_path: ${work_dir}/scripts/baselines/XDA/checkpoints/finetune_instbound_new_dataset
+  dict_path: ${work_dir}/scripts/baselines/XDA/xda_dataset/processed

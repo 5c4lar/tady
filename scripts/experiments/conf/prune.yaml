@@ -9,15 +9,35 @@ label: instruction
 dataset: llvm-test-suite-gtirb
 test_dataset: llvm-test-suite-gtirb
 bin_dir: ${work_dir}/data/bin/${test_dataset}
-input_dir: ${work_dir}/data/results/${test_dataset}
-prune_dir: ${work_dir}/data/prune/${test_dataset}
-errors_dir: ${work_dir}/data/errors/${test_dataset}
-gt_dir: ${work_dir}/data/gt/${test_dataset}
+output_dir: ${work_dir}/data/prune/${test_dataset}
+gt_dir: ${work_dir}/data/gt_npz/${test_dataset}
+eval_dir: ${work_dir}/data/eval_strip/${test_dataset}
+models:
+  # - ida
+  # - ghidra
+  # - deepdi
+  # - ddisasm
+  # - gt
+  # - xda
+  # - instruction_cpp_mix_obf_lite_all_64w_16h_2l_3s
+  - instruction_cpp_mix_lite_all_64w_16h_2l_3s
+  - instruction_cpp_mix_lite_none_64w_16h_2l_3s
+  - instruction_cpp_mix_sliding_all_64w_16h_2l_3s
+  - instruction_cpp_mix_sliding_none_64w_16h_2l_3s
+  # - instruction_cpp_pangine_lite_all_64w_16h_2l_0s
+  # - instruction_cpp_pangine_lite_overlapping_64w_16h_2l_0s
+  # - instruction_cpp_pangine_lite_edges_64w_16h_2l_0s
+  # - instruction_cpp_pangine_lite_none_64w_16h_2l_0s
+  # - instruction_cpp_pangine_sliding_all_64w_16h_2l_0s
+  # - instruction_cpp_pangine_sliding_overlapping_64w_16h_2l_0s
+  # - instruction_cpp_pangine_sliding_edges_64w_16h_2l_0s
+  # - instruction_cpp_pangine_sliding_none_64w_16h_2l_0s
 process: 24
 thread: 1
 model_id: null
 prune_gt: false
 overwrite: false
+num_samples: null
 tags:
   - ${label}
   - ${model.disassembler}
@@ -27,3 +47,4 @@ tags:
   - ${model.window_size}w
   - ${model.hidden_size}h
   - ${model.layers}l
+  - ${model.successor_idx}s

@@ -57,7 +57,7 @@ if __name__ == "__main__":
     result = disassemble(args.file)
     if args.output:
         rel_path = pathlib.Path(args.file).relative_to(args.dir)
-        output_path = pathlib.Path(args.output) / rel_path.with_suffix(".npz")
+        output_path = pathlib.Path(args.output) / (str(rel_path) + ".npz")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         np.savez(output_path, **result)
     else:

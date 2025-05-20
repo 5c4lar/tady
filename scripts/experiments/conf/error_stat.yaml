@@ -1,0 +1,19 @@
+defaults:
+  - _self_
+  - dataset: obf-benchmark
+  - model: default
+
+work_dir: ${hydra:runtime.cwd}
+overwrite: false
+models:
+  # - ida
+  # - ghidra
+  # - deepdi
+  # - ddisasm
+  # - gt
+  # - xda
+  # - instruction_cpp_mix_obf_lite_all_64w_16h_2l_3s
+  - instruction_cpp_mix_lite_all_64w_16h_2l_3s
+  - instruction_cpp_mix_lite_none_64w_16h_2l_3s
+  - instruction_cpp_mix_sliding_all_64w_16h_2l_3s
+  - instruction_cpp_mix_sliding_none_64w_16h_2l_3s

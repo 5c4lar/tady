@@ -1,7 +1,7 @@
 name: mix
 datasets:
   assemblage: 500
-  bap: 500
+  # bap: 500
   # llvm-test-suite-gtirb: 500
   pangine: 500
   # quarks: 500

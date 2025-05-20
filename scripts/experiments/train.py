@@ -196,7 +196,7 @@ def get_dataset(args, name, num_sample):
         ds = load_parquets(dataset_dir)
     else:
         ds = datasets.load_from_disk(dataset_dir)
-        num_samples = num_sample if num_sample is not None else len(ds)
+        num_samples = min(num_sample, len(ds)) if num_sample is not None else len(ds)
         ds = ds.shuffle(seed=0).take(num_samples)
         
         ds = ds.map(to_chunks, num_proc=args.process, batched=True,
@@ -214,18 +214,24 @@ def get_dataset(args, name, num_sample):
 
 @hydra.main(version_base=None, config_path="conf", config_name="train")
 def main(args: DictConfig):
-
+    checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+    model_id = "_".join([str(i) for i in args.tags])
+    checkpoint_path = pathlib.Path(args.checkpoint) / model_id
+    if checkpoint_path.exists():
+        print("Model already exist, skip training.")
+        return
     max_position_embeddings = args.model.seq_len
     attention_type = args.model.attention
     vocab_size = args.model.vocab_size
     hidden_size = args.model.hidden_size
-    intermediate_size = args.model.intermediate_size
+    intermediate_size = 2 * args.model.hidden_size
     num_attention_heads = args.model.num_attention_heads
     sliding_window = (args.model.window_size, args.model.window_size)
     num_hidden_layers = args.model.layers
     attention_dropout = args.model.dropout
     global_connection_class = args.model.global_connection_class
     token_pool = args.model.token_pool
+    successor_idx = args.model.successor_idx
     # print(config.num_global_connections)
     match (args.model.dtype):
         case "float32":
@@ -262,20 +268,20 @@ def main(args: DictConfig):
         num_epochs=args.epoch,
         shuffle=False,
         seed=0)
-    # read_options = grain.ReadOptions(num_threads=1, prefetch_buffer_size=500)
+    read_options = grain.ReadOptions(num_threads=1, prefetch_buffer_size=10)
     train_dataloader = grain.DataLoader(
         data_source=train_ds,
         sampler=train_sampler,
-        # read_options=read_options,
-        worker_count=args.process // 2,
-        worker_buffer_size=100
+        read_options=read_options,
+        worker_count=4,
+        worker_buffer_size=10
     )
     val_dataloader = grain.DataLoader(
         data_source=test_ds,
         sampler=test_sampler,
-        # read_options=read_options,
-        worker_count=args.process // 2,
-        worker_buffer_size=100
+        read_options=read_options,
+        worker_count=4,
+        worker_buffer_size=10
     )
 
     rngs = nnx.Rngs(params=jax.random.key(
@@ -289,6 +295,7 @@ def main(args: DictConfig):
         sliding_window=sliding_window,
         num_hidden_layers=num_hidden_layers,
         attention_type=attention_type,
+        successor_idx=successor_idx,
         token_pool=token_pool,
         attention_dropout=attention_dropout,
         num_global_connections=num_global_connections,
@@ -315,6 +322,9 @@ def main(args: DictConfig):
             rngs=rngs
         )
         forward_fn = forward_token
+    elif args.model.disassembler == "xda":
+        model = XDA(config, dtype=dtype, rngs=rngs)
+        forward_fn = forward_jax
     else:
         raise ValueError(f"Invalid disassembler: {args.disassembler}")
 
@@ -335,9 +345,6 @@ def main(args: DictConfig):
         recall=nnx.metrics.Average('recall'),
         accuracy=nnx.metrics.Average('accuracy')
     )
-    checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-    model_id = "_".join([str(i) for i in args.tags])
-    checkpoint_path = pathlib.Path(args.checkpoint) / model_id
     config_path = pathlib.Path(args.config) / model_id
     print(f"saving to {checkpoint_path.absolute()}")
     # checkpoint_steps = 100
@@ -363,10 +370,10 @@ def main(args: DictConfig):
                 #     print(key, value.shape)
                 train_step(model, optimizer, batch,
                            train_metrics, value_and_grad_fn, rngs)
-                metrics_dict = {f"train_{name}": f"{metric:.4f}" for name,
+                metrics_dict = {f"train_{name}": f"{jax.device_get(metric).item():.4f}" for name,
                                 metric in train_metrics.compute().items()}
                 tbar.set_postfix(metrics_dict)
-                run.log({f"train_{name}": metric for name,
+                run.log({f"train_{name}": jax.device_get(metric).item() for name,
                         metric in train_metrics.compute().items()}, step=global_step)
                 global_step += 1
                 train_metrics.reset()
@@ -374,10 +381,10 @@ def main(args: DictConfig):
             for _ in range(len(test_ds)):
                 val_batch = next(val_iter)
                 eval_step(model, val_batch, eval_metrics, forward_fn)
-                metrics_dict = {f"val_{name}": f"{metric:.4f}" for name,
+                metrics_dict = {f"val_{name}": f"{jax.device_get(metric).item():.4f}" for name,
                                 metric in eval_metrics.compute().items()}
                 ebar.set_postfix(metrics_dict)
-            eval_metrics_dict = {f"val_{name}": metric for name,
+            eval_metrics_dict = {f"val_{name}": jax.device_get(metric).item() for name,
                                  metric in eval_metrics.compute().items()}
             run.log(eval_metrics_dict, step=global_step)
             eval_metrics.reset()
