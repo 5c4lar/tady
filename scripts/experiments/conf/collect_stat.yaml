@@ -1,0 +1,9 @@
+datasets:
+  - quarks
+  - pangine
+  - obf-benchmark
+  - rw
+  - x86_dataset
+  - assemblage
+work_dir: ${hydra:runtime.cwd}
+prune_dir: ${work_dir}/data/prune

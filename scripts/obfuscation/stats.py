@@ -46,7 +46,7 @@ def process_file(arg):
         # print(f"Indirect calls: {indirect_calls}")
         # print(f"Indirect jumps: {indirect_jumps}")
         # print(f"File: {file_path}")
-    return file_path, (len(indirect), len(gt_mask), len(indirect) / len(gt_mask))
+    return file_path, (len(indirect), int(sum(gt_mask)), len(indirect) / int(sum(gt_mask)))
     
 
 def main():

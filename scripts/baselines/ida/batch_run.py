@@ -7,8 +7,8 @@ from tqdm import tqdm
 import numpy as np
 from tady.utils.loader import load_text
 
-def disassemble(file):
-    text_array, use_64_bit, base_addr = load_text(file)
+def disassemble(file, section_name=None):
+    text_array, use_64_bit, base_addr = load_text(file, section_name)
     
     res = parse_binary(file, persist_database=False)
     offsets = np.array(res["instructions"], dtype=np.int64) - base_addr
@@ -24,7 +24,7 @@ def disassemble(file):
 def process_file(args):
     args, file = args
     if file.is_file():
-        result = disassemble(file)
+        result = disassemble(file, args.section_name)
         rel_path = file.relative_to(args.dir)
         output_path = pathlib.Path(args.output) / (str(rel_path) + ".npz")
         if output_path.exists():
@@ -38,6 +38,7 @@ def main():
     parser.add_argument("--file", type=str, help="Path to the file to be disassembled")
     parser.add_argument("--output", type=str, help="Path to the output directory")
     parser.add_argument("--process", type=int, help="Number of processes used for batch processing")
+    parser.add_argument("--section_name", default=None, type=str, help="Section name")
     args = parser.parse_args()
     
     if args.file:

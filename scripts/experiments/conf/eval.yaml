@@ -12,6 +12,7 @@ bin_dir: ${work_dir}/data/bin_strip/${test_dataset}
 pred: ${work_dir}/data/pred_strip/${test_dataset}
 output: ${work_dir}/data/eval_strip/${test_dataset}
 stats: ${work_dir}/data/stats/${test_dataset}
+failure: ${work_dir}/data/failure/${test_dataset}
 tokenizer: ${work_dir}/tokenizer.json
 process: 24
 thread: 1
@@ -26,10 +27,14 @@ tags:
   - ${dataset.name}
   - ${model.attention}
   - ${connections.name}
-  - ${model.window_size}w
+  # - ${model.overlapping_attn}
+  - ${model.sliding_window[0]}lw
+  - ${model.sliding_window[1]}rw
   - ${model.hidden_size}h
   - ${model.layers}l
-  - ${model.successor_idx}s
+  - ${model.config_name}
+  # - ${model.successor_idx[0]}${model.successor_idx[1]}s
+binary_list: ${work_dir}/artifacts/selected_samples.json
 ida:
   script: scripts.baselines.ida.batch_run
 ghidra:

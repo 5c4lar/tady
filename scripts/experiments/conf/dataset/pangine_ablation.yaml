@@ -1,0 +1,4 @@
+compiler: clang-6.0.0
+optimization: "O0"
+datasets: pangine/x86_64-pc-linux-gnu-${dataset.compiler}/%2d${dataset.optimization}/
+name: pangine_${dataset.compiler}_${dataset.optimization}

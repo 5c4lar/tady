@@ -5,15 +5,48 @@ defaults:
 
 work_dir: ${hydra:runtime.cwd}
 overwrite: false
+process: 24
+num_samples: null
+datasets:
+  - x86_dataset
+  - pangine
+  - rw
+  - assemblage
+  - obf-benchmark
+  - quarks
 models:
+  - instruction_cpp_pangine_lite_all_64lw_64rw_16h_2l_prev000
+  - instruction_cpp_pangine_lite_none_64lw_64rw_16h_2l_prev000
+  - instruction_cpp_pangine_sliding_all_64lw_64rw_16h_2l_prev000
+  - instruction_cpp_pangine_sliding_none_64lw_64rw_16h_2l_prev000
   # - ida
   # - ghidra
   # - deepdi
   # - ddisasm
   # - gt
   # - xda
+  # - instruction_cpp_mix_all_lite_all_64lw_64rw_16h_2l_prev333
+  # - instruction_cpp_pangine_lite_all_64lw_64rw_16h_2l_prev000
+  # - instruction_cpp_mix_all_lite_all_64lw_64rw_16h_2l_prev000
+  # - instruction_cpp_pangine_lite_all_64lw_64rw_16h_2l_prev000
+  # - instruction_cpp_pangine_sliding_none_64lw_64rw_16h_2l_prev000
+  # - instruction_cpp_pangine_sliding_all_64lw_64rw_16h_2l_prev000
+  # - instruction_cpp_pangine_lite_all_64lw_64rw_16h_2l_prev000
+  # - instruction_cpp_pangine_lite_all_64lw_64rw_16h_2l_prev33
+  # - instruction_cpp_pangine_lite_all_64lw_64rw_16h_2l_prev003
+  # - instruction_cpp_mix_all_lite_all_64lw_64rw_16h_2l_prev333
+  # - instruction_cpp_mix_all_lite_all_64lw_64rw_16h_2l_prev003
+  # - instruction_cpp_pangine_lite_all_True_64lw_64rw_16h_2l_3s
+  # - instruction_cpp_pangine_lite_all_True_0lw_64rw_16h_2l_0s
+  # - instruction_cpp_pangine_lite_all_True_64lw_64rw_16h_2l_0s
+  # - instruction_cpp_mix_all_lite_all_True_64lw_64rw_16h_2l_0s
   # - instruction_cpp_mix_obf_lite_all_64w_16h_2l_3s
-  - instruction_cpp_mix_lite_all_64w_16h_2l_3s
-  - instruction_cpp_mix_lite_none_64w_16h_2l_3s
-  - instruction_cpp_mix_sliding_all_64w_16h_2l_3s
-  - instruction_cpp_mix_sliding_none_64w_16h_2l_3s
+  # - instruction_cpp_pangine_lite_all_64w_16h_2l_0s
+  # - instruction_cpp_pangine_lite_all_64w_16h_2l_3s
+  # - instruction_cpp_pangine_lite_overlapping_64w_16h_2l_3s
+  # - instruction_cpp_pangine_lite_edges_64w_16h_2l_3s
+  # - instruction_cpp_pangine_lite_none_64w_16h_2l_3s
+  # - instruction_cpp_pangine_sliding_all_64w_16h_2l_3s
+  # - instruction_cpp_pangine_sliding_overlapping_64w_16h_2l_3s
+  # - instruction_cpp_pangine_sliding_edges_64w_16h_2l_3s
+  # - instruction_cpp_pangine_sliding_none_64w_16h_2l_3s

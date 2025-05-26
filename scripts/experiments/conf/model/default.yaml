@@ -4,10 +4,14 @@ vocab_size: 3840
 hidden_size: 16
 num_attention_heads: 4
 window_size: 64
+sliding_window: 
+ - ${model.window_size}
+ - ${model.window_size}
 layers: 2
 dropout: 0.1
 global_connection_class: true
 token_pool: "rnn"
 dtype: float32
 disassembler: cpp # cpp or jax
-successor_idx: 3
+successor_idx: [0, 0, 0]
+config_name: prev000

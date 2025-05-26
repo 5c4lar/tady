@@ -1,8 +1,6 @@
-name: mix
+name: mix_all
 datasets:
   assemblage: 100
-  bap: 100
-  llvm-test-suite-gtirb: 100
   pangine: 100
   quarks: 100
   rw: 100

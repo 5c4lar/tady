@@ -16,14 +16,14 @@ def len_to_overlappings(instr_len):
                             offset[:, np.newaxis] + ranges[np.newaxis, :], -1)
     return overlapping
 
-def chunk_data(byte_sequence, seq_len, window_size, gt=None, label_mask=None):
+def chunk_data(byte_sequence, seq_len, sliding_window, gt=None, label_mask=None):
     """
     Turns a byte sequence into chunks of seq_len with window_size overlap.
 
     Args:
         byte_sequence (np.ndarray): The input byte sequence.
         seq_len (int): The length of each chunk.
-        window_size (int): The size of the overlap window on each side of a chunk.
+        sliding_window (list): The size of the overlap window on each side of a chunk.
         gt (array-like, optional): Ground truth labels, same length as byte_sequence.
         label_mask (array-like, optional): Mask, same length as byte_sequence, filter loss calculation.
     Returns:
@@ -36,13 +36,11 @@ def chunk_data(byte_sequence, seq_len, window_size, gt=None, label_mask=None):
         raise TypeError("byte_sequence must be a numpy array.")
     if seq_len <= 0:
         raise ValueError("seq_len must be positive.")
-    if window_size < 0:
-        raise ValueError("window_size must be non-negative.")
 
-    chunk_step = seq_len - 2 * window_size
+    chunk_step = seq_len - sum(sliding_window)
     if chunk_step <= 0:
         raise ValueError(
-            "seq_len must be greater than 2 * window_size for chunk_step to be positive."
+            "seq_len must be greater than sum(sliding_window) for chunk_step to be positive."
         )
 
     n_bytes = len(byte_sequence)
@@ -97,15 +95,15 @@ def chunk_data(byte_sequence, seq_len, window_size, gt=None, label_mask=None):
         # Mark window overlaps as invalid
         # This logic should handle window_size == 0 correctly (no-op for masks)
         # and window_size > seq_len (masks entire chunk).
-        if window_size > 0:
+        if sliding_window[1] > 0:
             # Mask out the end window (right side)
             # Equivalent to mask[-window_size:] = False but robust for small seq_len
-            mask[max(0, seq_len - window_size):seq_len] = False
+            mask[max(0, seq_len - sliding_window[1]):seq_len] = False
             
             if idx != 0:  # Not the first chunk
                 # Mask out the start window (left side)
                 # Equivalent to mask[:window_size] = False but robust
-                mask[:min(window_size, seq_len)] = False
+                mask[:min(sliding_window[0], seq_len)] = False
         
         masks_arr[idx] = mask & mask_chunk
         
@@ -116,23 +114,26 @@ def chunk_data(byte_sequence, seq_len, window_size, gt=None, label_mask=None):
     else:
         return byte_chunks_arr, masks_arr
     
-def load_text(file_path):
+def load_text(file_path, section_name=None):
     binary = lief.parse(str(file_path))
     match binary.format:
         case lief.Binary.FORMATS.ELF:
-            text_section = binary.get_section(".text")
+            name = ".text" if section_name is None else section_name
+            text_section = binary.get_section(name)
             base_addr = text_section.virtual_address
             text_bytes = bytes(text_section.content)
             text_array = np.frombuffer(text_bytes, dtype=np.uint8)
             use_64_bit = binary.header.machine_type == lief.ELF.ARCH.X86_64
         case lief.Binary.FORMATS.MACHO:
-            text_section = binary.get_section("__text")
+            name = "__text" if section_name is None else section_name
+            text_section = binary.get_section(name)
             base_addr = text_section.virtual_address
             text_bytes = bytes(text_section.content)
             text_array = np.frombuffer(text_bytes, dtype=np.uint8)
             use_64_bit = binary.header.cpu_type == lief.MachO.Header.CPU_TYPE.X86_64
         case lief.Binary.FORMATS.PE:
-            text_section = binary.get_section(".text")
+            name = ".text" if section_name is None else section_name
+            text_section = binary.get_section(name)
             base_addr = text_section.virtual_address + binary.imagebase
             text_bytes = bytes(text_section.content)
             text_array = np.frombuffer(text_bytes, dtype=np.uint8)
@@ -141,14 +142,14 @@ def load_text(file_path):
             raise ValueError(f"Unsupported format: {binary.format}")
     return text_array, use_64_bit, base_addr
 
-def preprocess_binary(file_path, seq_len=8192, window_size=64):
-    text_array, use_64_bit, base_addr = load_text(file_path)
-    byte_chunks, masks = chunk_data(text_array, seq_len, window_size)
+def preprocess_binary(file_path, seq_len=8192, sliding_window=(0, 64), section_name=None):
+    text_array, use_64_bit, base_addr = load_text(file_path, section_name)
+    byte_chunks, masks = chunk_data(text_array, seq_len, sliding_window)
     return byte_chunks, masks, use_64_bit, base_addr
 
 if __name__ == "__main__":
     file_path = "/bin/bash"
-    byte_chunks, masks, use_64_bit, base_addr = preprocess_binary(file_path)
+    byte_chunks, masks, use_64_bit, base_addr = preprocess_binary(file_path, section_name=".text")
     print(f"Base address: {base_addr}")
     print(f"Use 64 bit: {use_64_bit}")
     byte_chunks = np.array(byte_chunks)

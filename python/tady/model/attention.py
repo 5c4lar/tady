@@ -179,18 +179,17 @@ def get_attention_lite(edges, sliding_window):
                         which nodes can attend to which other nodes within the window.
     """
     # edges = edges[:, 3]
-    window_size = sliding_window[0]  # Assumes left_window == right_window
     seq_len = edges.shape[0]
 
     # Initialize attention mask with False
     # Size of window: left_window + self + right_window = window_size + 1 + window_size
-    attention_mask = jnp.zeros((seq_len, 2 * window_size + 1), dtype=bool)
+    attention_mask = jnp.zeros((seq_len, sum(sliding_window) + 1), dtype=bool)
     
     # Self-attention (center of the window)
     # The index for self-attention is window_size
-    attention_mask = attention_mask.at[:, window_size].set(True)
+    attention_mask = attention_mask.at[:, sliding_window[0]].set(True)
     
-    fwd_mask = jnp.zeros((seq_len, window_size), dtype=bool)
+    fwd_mask = jnp.zeros((seq_len, sliding_window[1]), dtype=bool)
     
     # Helper function to compute forward reachability within window
     def compute_forward_reachability(idx, mask):
@@ -205,12 +204,12 @@ def get_attention_lite(edges, sliding_window):
         def forward_cond(state):
             _, _, found_new, step_count = state
             # Continue if we found new nodes in last iteration and haven't hit max steps
-            return found_new & (step_count < window_size)
+            return found_new & (step_count < sliding_window[1])
         
         def forward_body(state):
             pos, curr_mask, _, step_count = state
             next_pos = edges[pos]
-            valid_next = (next_pos != -1) & (next_pos < seq_len) & (next_pos > idx) & (next_pos <= idx + window_size)
+            valid_next = (next_pos != -1) & (next_pos < seq_len) & (next_pos > idx) & (next_pos <= idx + sliding_window[1])
             # Only update position if valid
             new_pos = jnp.where(valid_next, next_pos, pos)
             # Check if this position was already marked
@@ -237,15 +236,15 @@ def get_attention_lite(edges, sliding_window):
     
     # Compute backward mask based on forward mask
     # If j can reach i in the forward pass, then i can be reached by j in the backward pass
-    bwd_mask = jnp.zeros((seq_len, window_size), dtype=bool)
+    bwd_mask = jnp.zeros((seq_len, sliding_window[0]), dtype=bool)
     
     # For each node i and each potential predecessor j within the window
     def compute_backward_mask(idx, mask):
         # For each position within the window before idx
-        window_start = jnp.maximum(0, idx - window_size)
+        window_start = jnp.maximum(0, idx - sliding_window[0])
         
         # Calculate all positions j that are within the window before idx
-        j_indices = jnp.arange(window_size)
+        j_indices = jnp.arange(sliding_window[0])
         j_positions = window_start + j_indices
         
         # Filter to only include valid positions (j < idx)
@@ -259,7 +258,7 @@ def get_attention_lite(edges, sliding_window):
         reachable = jnp.where(valid_j, fwd_mask[valid_j_positions, positions_in_fwd_mask], False) # Shape (window_size,)
         
         # Set in backward mask
-        positions_in_bwd_mask = window_size - (idx - valid_j_positions)
+        positions_in_bwd_mask = sliding_window[0] - (idx - valid_j_positions)
         mask = jnp.where(valid_j, reachable, mask)
         
         return mask
@@ -268,10 +267,10 @@ def get_attention_lite(edges, sliding_window):
     bwd_mask = jax.vmap(compute_backward_mask)(jnp.arange(seq_len), bwd_mask)
     
     # Combine forward and backward masks with self-attention
-    attention_mask = attention_mask.at[:, :window_size].set(bwd_mask)
-    attention_mask = attention_mask.at[:, window_size+1:].set(fwd_mask)
+    attention_mask = attention_mask.at[:, :sliding_window[0]].set(bwd_mask)
+    attention_mask = attention_mask.at[:, sliding_window[0]+1:].set(fwd_mask)
     
-    return attention_mask.reshape((seq_len, 1, 2 * window_size + 1))
+    return attention_mask.reshape((seq_len, 1, sum(sliding_window) + 1))
 
 
 if __name__ == "__main__":

@@ -104,12 +104,12 @@ def eval_step(model, batch, metrics, forward_fn):
                    recall=recall, accuracy=accuracy)
 
 
-def to_chunks(examples):
+def to_chunks(examples, seq_len, sliding_window):
     results = {"bytes": [], "labels": [], "mask": [], "is_64": []}
     for example in examples['gt']:
         data = np.load(BytesIO(example))
         bytes, labels, is_64, mask = data["text_array"], data["labels"], data["use_64_bit"].item(), data["mask"]
-        chunks, labels, masks = chunk_data(bytes, 8192, 64, labels, label_mask=mask)
+        chunks, labels, masks = chunk_data(bytes, seq_len, sliding_window, labels, label_mask=mask)
         results["bytes"].extend(chunks.tolist())
         results["labels"].extend(labels.tolist())
         results["mask"].extend(masks.tolist())
@@ -156,11 +156,12 @@ class Tokenizer:
         instr_len, _, control_flow, _ = self.disassembler.superset_disasm(
             example["bytes"], example["is_64"])
         overlappings = self.overlapping_addresses(instr_len)
+        overlappings_prev = self.overlapping_addresses_prev(instr_len)
         asms = self.disassembler.disasm_to_str(example["bytes"], example["is_64"], 0)
         res = self.tokenizer(asms, max_length=16, padding="max_length", truncation=True)
         input_ids = np.array(res["input_ids"])
         token_len = np.array(res["attention_mask"]).sum(axis=-1)
-        connections = np.concatenate([control_flow, overlappings], axis=-1)
+        connections = np.concatenate([control_flow, overlappings, overlappings_prev], axis=-1)
         return {
             "input_ids": input_ids,
             "instr_len": token_len,
@@ -199,7 +200,7 @@ def get_dataset(args, name, num_sample):
         num_samples = min(num_sample, len(ds)) if num_sample is not None else len(ds)
         ds = ds.shuffle(seed=0).take(num_samples)
         
-        ds = ds.map(to_chunks, num_proc=args.process, batched=True,
+        ds = ds.map(partial(to_chunks, seq_len=args.model.seq_len, sliding_window=tuple(args.model.sliding_window)), num_proc=args.process, batched=True,
                     batch_size=1, remove_columns=ds.column_names)
         ds.set_format(type="numpy")
         if args.model.disassembler == "cpp":
@@ -208,7 +209,7 @@ def get_dataset(args, name, num_sample):
         if args.model.disassembler == "token":
             tokenizer_fast = PreTrainedTokenizerFast(tokenizer_file=args.tokenizer, clean_up_tokenization_spaces=False)
             tokenizer = Tokenizer(tokenizer_fast)
-            ds = ds.map(tokenizer, num_proc=args.process, remove_columns=ds.column_names, writer_batch_size=100)
+            ds = ds.map(tokenizer, num_proc=args.process, remove_columns=ds.column_names)
             ds.set_format(type="numpy")
     return ds
 
@@ -217,7 +218,7 @@ def main(args: DictConfig):
     checkpointer = orbax.checkpoint.PyTreeCheckpointer()
     model_id = "_".join([str(i) for i in args.tags])
     checkpoint_path = pathlib.Path(args.checkpoint) / model_id
-    if checkpoint_path.exists():
+    if checkpoint_path.exists() and not args.overwrite:
         print("Model already exist, skip training.")
         return
     max_position_embeddings = args.model.seq_len
@@ -226,12 +227,13 @@ def main(args: DictConfig):
     hidden_size = args.model.hidden_size
     intermediate_size = 2 * args.model.hidden_size
     num_attention_heads = args.model.num_attention_heads
-    sliding_window = (args.model.window_size, args.model.window_size)
+    sliding_window = tuple(args.model.sliding_window)
     num_hidden_layers = args.model.layers
     attention_dropout = args.model.dropout
     global_connection_class = args.model.global_connection_class
     token_pool = args.model.token_pool
-    successor_idx = args.model.successor_idx
+    successor_idx = tuple(args.model.successor_idx)
+    # overlapping_attn = args.model.overlapping_attn
     # print(config.num_global_connections)
     match (args.model.dtype):
         case "float32":
@@ -273,14 +275,14 @@ def main(args: DictConfig):
         data_source=train_ds,
         sampler=train_sampler,
         read_options=read_options,
-        worker_count=4,
+        worker_count=args.process,
         worker_buffer_size=10
     )
     val_dataloader = grain.DataLoader(
         data_source=test_ds,
         sampler=test_sampler,
         read_options=read_options,
-        worker_count=4,
+        worker_count=args.process,
         worker_buffer_size=10
     )
 
@@ -302,7 +304,8 @@ def main(args: DictConfig):
         connections=connections,
         global_connection_class=global_connection_class,
         num_labels=num_labels,
-        max_position_embeddings=max_position_embeddings
+        max_position_embeddings=max_position_embeddings,
+        # overlapping_attn=overlapping_attn
     )
     if args.model.disassembler == "cpp":
         model = Tady(config, dtype=dtype, rngs=rngs)

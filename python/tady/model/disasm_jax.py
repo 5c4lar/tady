@@ -208,6 +208,47 @@ def overlapping_addresses(instr_len):
                             offset[:, jnp.newaxis] + ranges[jnp.newaxis, :], -1)
     return overlapping
 
+# @jax.jit
+def overlapping_addresses_prev(instr_len):
+    '''
+    Calculate the overlapping addresses for the instruction previous to the current instruction.
+    This means prev_offset + prev_len > curr_offset
+
+    Args:
+        instr_len: A JAX array of shape [L] containing the instruction length
+    Returns:
+        A JAX array of shape [L, 14] containing the overlapping addresses
+    '''
+    offset = jnp.arange(0, instr_len.shape[0])
+    ranges = jnp.arange(1, 15)
+    prev_addrs = offset[:, jnp.newaxis] - ranges[jnp.newaxis, :]
+    instr_len_at_prev_addrs = jnp.take(instr_len, prev_addrs, fill_value=-1)
+    overlapping = jnp.where(prev_addrs >= 0, instr_len_at_prev_addrs > ranges[jnp.newaxis, :], False)
+    overlapping_addrs = jnp.where(overlapping, prev_addrs, -1)
+    return overlapping_addrs
+
+@jax.jit
+def overlapping_mask(instr_len):
+    """
+    Calculate the overlapping mask for the instruction.
+
+    Args:
+        instr_len: A JAX array of shape [L] containing the instruction length
+    Returns:
+        A JAX array of shape [L, 1, 29] containing the candidate overlapping addresses 
+        for prev and after the current instruction
+    """
+    offset = jnp.arange(0, instr_len.shape[0])
+    ranges = jnp.arange(14, 0, -1)
+    prev_addrs = offset[:, jnp.newaxis] - ranges[jnp.newaxis, :]
+    instr_len_at_prev_addrs = jnp.take(instr_len, prev_addrs, fill_value=-1)
+    overlapping_prev = jnp.where(prev_addrs >= 0, instr_len_at_prev_addrs > ranges[jnp.newaxis, :], False)
+    ranges = jnp.arange(1, 15)
+    overlapping_after = instr_len[:, jnp.newaxis] > ranges[jnp.newaxis, :]
+    self_attn = jnp.ones((instr_len.shape[0], 1), dtype=jnp.bool)
+    overlapping_mask = jnp.concatenate([overlapping_prev, self_attn, overlapping_after], axis=-1)
+    return jnp.expand_dims(overlapping_mask, axis=1)
+
 @jax.jit
 def parse_disasm(instr_bytes, disasm, flow_kind):
     '''Calculate the control flow for the instruction.
@@ -250,6 +291,7 @@ def parse_disasm(instr_bytes, disasm, flow_kind):
     next_instr_addr = jnp.where(instr_len > 0, offset + instr_len, -1)
     # overlapping addresses
     overlapping = overlapping_addresses(instr_len)
+    overlapping_prev = overlapping_addresses_prev(instr_len)
     # must target, based on flow kind, next for other, -1 for unconditional jumps, next + imm for unconditional jumps and calls
     must_target = jnp.where(flow_kind == 1, next_instr_addr, -1)
     must_target = jnp.where((((flow_kind == 2) | (flow_kind == 4)) & (
@@ -265,11 +307,12 @@ def parse_disasm(instr_bytes, disasm, flow_kind):
     instruction = instr_bytes.astype(jnp.int32)
     idx = jnp.arange(0, instruction.shape[1])
     instruction = instruction + (idx * 256)
-    control_flow = jnp.full((must_target.shape[0], 18), -1, dtype=jnp.int32)
+    control_flow = jnp.full((must_target.shape[0], 32), -1, dtype=jnp.int32)
     control_flow = control_flow.at[:, 0].set(must_target)
     control_flow = control_flow.at[:, 1:3].set(may_target)
     control_flow = control_flow.at[:, 3].set(next_instr_addr)
-    control_flow = control_flow.at[:, 4:].set(overlapping)
+    control_flow = control_flow.at[:, 4:18].set(overlapping)
+    control_flow = control_flow.at[:, 18:].set(overlapping_prev)
     control_flow = jnp.where((control_flow < 0) | (
         control_flow >= instr_bytes.shape[0]), -1, control_flow)
     return instruction, control_flow, instr_len
@@ -1377,8 +1420,8 @@ def interpret_disasm_result(disasm_array, include_flow_kind=True):
 # Example usage
 if __name__ == "__main__":
     # Example byte sequence (x86 instructions)
-    example_bytes = jnp.array(np.random.randint(0, 256, size=(
-        32, 1024 * 1024), dtype=np.uint8), dtype=jnp.uint8)
+    # example_bytes = jnp.array(np.random.randint(0, 256, size=(
+    #     32, 1024 * 1024), dtype=np.uint8), dtype=jnp.uint8)
     # example_bytes = jnp.array([
     #     0xE8, 0x12, 0x34, 0x56, 0x78,  # CALL instruction
     #     0xFF, 0xD0,                     # CALL rax
@@ -1392,8 +1435,12 @@ if __name__ == "__main__":
     # print("Opcode and ModRM:\n", opcode_modrm)
     # print("Control Flow Kind:\n", flow_kind)
 
-    instruction, control_flow = jax.vmap(preprocess_binary)(example_bytes)
-    for i in range(10):
-        instruction, control_flow = jax.vmap(preprocess_binary)(example_bytes)
+    # instruction, control_flow = jax.vmap(preprocess_binary)(example_bytes)
+    # for i in range(10):
+    #     instruction, control_flow = jax.vmap(preprocess_binary)(example_bytes)
     # print("Instruction:\n", instruction)
     # print("Control Flow:\n", control_flow)
+    
+    # test overlapping_addresses_prev
+    instr_len = jnp.array([5, 4, 3, 2, 1])
+    print(overlapping_addresses_prev(instr_len))

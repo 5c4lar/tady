@@ -74,7 +74,7 @@ def process_file(arg):
         else:
             eval_path = pathlib.Path(args.eval_dir) / model / rel_path
             if not eval_path.exists():
-                print(f"Requirement {str(eval_path)} does not exist")
+                # print(f"Requirement {str(eval_path)} does not exist")
                 continue
             try:
                 eval_data = np.load(eval_path)
@@ -156,15 +156,20 @@ def parse_quarks_opts(task):
     return (obfuscator, obfuscation_type, obfuscation_level)
 
 def average_result(args):
-    total_precision = defaultdict(float)
-    total_recall = defaultdict(float)
-    total_inst = defaultdict(int)
-    average_precision = defaultdict(float)
-    average_recall = defaultdict(float)
     gt_dir = pathlib.Path(args.gt_dir)
     output_dir = pathlib.Path(args.output_dir)
+    pruned = {}
     for model in args.models:
-        model_tasks = output_dir.rglob(f"{model}.npz")
+        total_precision = defaultdict(float)
+        total_recall = defaultdict(float)
+        total_inst = defaultdict(int)
+        average_precision = defaultdict(float)
+        average_recall = defaultdict(float)
+        model_tasks = list(output_dir.rglob(f"{model}.npz"))
+        if args.num_samples and args.num_samples < len(model_tasks):
+            import random
+            random.seed(0)
+            model_tasks = random.sample(model_tasks, args.num_samples)
         for task in model_tasks:
             data = np.load(task)
             rel_path = task.relative_to(output_dir).parent
@@ -193,6 +198,64 @@ def average_result(args):
             average_recall[opt] = total_recall[opt] / total_inst[opt]
             F1 = 2 * average_precision[opt] * average_recall[opt] / (average_precision[opt] + average_recall[opt]) if (average_precision[opt] + average_recall[opt]) > 0 else 0
             print(f"{opt} F1: {F1:.4f}, Average Precision: {average_precision[opt]:.4f}, Average Recall: {average_recall[opt]:.4f}")
+            pruned[f"{args.test_dataset}/{model}/{opt}"] = {
+                "precision": average_precision[opt],
+                "recall": average_recall[opt],
+                "f1": F1,
+            }
+    return pruned
+
+def average_before_prune(args):
+    gt_dir = pathlib.Path(args.gt_dir)
+    output_dir = pathlib.Path(args.eval_dir)
+    before = {}
+    for model in args.models:
+        model_dir = output_dir / model
+        model_tasks = list(model_dir.rglob("*.npz"))
+        if args.num_samples and args.num_samples < len(model_tasks):
+            import random
+            random.seed(0)
+            model_tasks = random.sample(model_tasks, args.num_samples)
+        total_precision = defaultdict(float)
+        total_recall = defaultdict(float)
+        total_inst = defaultdict(int)
+        average_precision = defaultdict(float)
+        average_recall = defaultdict(float)
+        for task in model_tasks:
+            data = np.load(task)
+            rel_path = task.relative_to(model_dir).parent
+            parts = task.relative_to(model_dir).with_suffix("").as_posix().split("/")
+            task_name = task.relative_to(model_dir).as_posix()
+            gt_path = gt_dir / task_name
+            gt_data = np.load(gt_path)
+            # if args.test_dataset == "x86_dataset":
+            #     opt = parse_x86_sok_opts(task_name)
+            # elif args.test_dataset == "quarks":
+            #     opt = parse_quarks_opts(task_name)
+            # elif args.test_dataset == "llvm-test-suite-gtirb":
+            #     opt = str(parts[:2]) if "SPEC" not in parts else str([parts[0], parts[3] if not ('2006' in parts[3] or '2017' in parts[3]) else '2017' if '2017' in parts[3] else '2006'])
+            # elif args.test_dataset == "rw":
+            #     opt = parse_rw_opts(task_name)
+            # else:
+            #     opt = "all"
+            opt = "all"
+            total = gt_data["mask"].sum()
+            total_precision[opt] += data["precision"] * total
+            total_recall[opt] += data["recall"] * total
+            total_inst[opt] += total
+        print(f"Model: {model}, dataset: {args.test_dataset}")
+        for opt in total_inst:
+            print(f"Total: {total_inst[opt]}, Precision: {total_precision[opt]}, Recall: {total_recall[opt]}")
+            average_precision[opt] = total_precision[opt] / total_inst[opt]
+            average_recall[opt] = total_recall[opt] / total_inst[opt]
+            F1 = 2 * average_precision[opt] * average_recall[opt] / (average_precision[opt] + average_recall[opt]) if (average_precision[opt] + average_recall[opt]) > 0 else 0
+            print(f"{opt} F1: {F1:.4f}, Average Precision: {average_precision[opt]:.4f}, Average Recall: {average_recall[opt]:.4f}")
+            before[f"{args.test_dataset}/{model}/{opt}"] = {
+                "precision": average_precision[opt],
+                "recall": average_recall[opt],
+                "f1": F1,
+            }
+    return before
 
 @hydra.main(version_base=None, config_path="conf", config_name="prune")
 def main(args: DictConfig):
@@ -210,7 +273,13 @@ def main(args: DictConfig):
         for result in pool.imap_unordered(process_file, tasks_gt):
             pbar.update()
             pbar.refresh()
-    average_result(args)
-
+    pruned = average_result(args)
+    before = average_before_prune(args)
+    result = {
+        "pruned": pruned,
+        "before": before,
+    }
+    with open(pathlib.Path(args.output_dir) / "prune_result.json", "w") as f:
+        json.dump(result, f)
 if __name__ == "__main__":
     main()

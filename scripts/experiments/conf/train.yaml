@@ -16,6 +16,7 @@ wandb:
 process: 8
 epoch: 1
 num_samples: null
+overwrite: false
 dataset_format: datasets # datasets or parquet
 tags:
   - ${label}
@@ -23,7 +24,10 @@ tags:
   - ${dataset.name}
   - ${model.attention}
   - ${connections.name}
-  - ${model.window_size}w
+  # - ${model.overlapping_attn}
+  - ${model.sliding_window[0]}lw
+  - ${model.sliding_window[1]}rw
   - ${model.hidden_size}h
   - ${model.layers}l
-  - ${model.successor_idx}s
+  # - ${model.successor_idx[0]}${model.successor_idx[1]}s
+  - ${model.config_name}

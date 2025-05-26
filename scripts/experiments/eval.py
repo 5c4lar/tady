@@ -201,7 +201,7 @@ def eval_tady(arg):
             return str(rel_path.with_suffix("")), {"precision": p, "recall": r, "total": t}
         # print(f"Disassembling {rel_path}")
         data = np.load(file)
-        byte_chunks, masks = chunk_data(data["text_array"], args.model.seq_len, args.model.window_size)
+        byte_chunks, masks = chunk_data(data["text_array"], args.model.seq_len, args.model.sliding_window)
         batched_byte_chunks, batched_masks = batchify(
             byte_chunks, masks, args.batch_size)
         logits = []
@@ -235,6 +235,7 @@ def average_result(args, result):
     total_inst = defaultdict(int)
     average_precision = defaultdict(float)
     average_recall = defaultdict(float)
+    total_files = defaultdict(int)
     for task, values in result.items():
         parts = task.split("/")
         # if args.test_dataset == "x86_dataset":
@@ -251,11 +252,12 @@ def average_result(args, result):
         total_precision[opt] += values["precision"] * values["total"]
         total_recall[opt] += values["recall"] * values["total"]
         total_inst[opt] += values["total"]
+        total_files[opt] += 1
     for opt in total_inst:
         average_precision[opt] = total_precision[opt] / total_inst[opt]
         average_recall[opt] = total_recall[opt] / total_inst[opt]
         F1 = 2 * average_precision[opt] * average_recall[opt] / (average_precision[opt] + average_recall[opt]) if (average_precision[opt] + average_recall[opt]) > 0 else 0
-        print(f"{opt} F1: {F1:.4f}, Average Precision: {average_precision[opt]:.4f}, Average Recall: {average_recall[opt]:.4f}")
+        print(f"{opt} F1: {F1:.4f}, Average Precision: {average_precision[opt]:.4f}, Average Recall: {average_recall[opt]:.4f} for {total_files[opt]} files")
 
 def process_tady(args, files, model):
     output = pathlib.Path(args.output) / model
@@ -278,7 +280,7 @@ def disassemble_ida(args, task):
     pred_path = pred_dir / task.with_suffix(".npz")
     if pred_path.exists():
         return np.load(pred_path)
-    subprocess.run(["python", "-m", args.ida.script, "--dir", str(bin_dir), "--file", str(bin_path), "--output", str(pred_dir)])
+    subprocess.run(["python", "-m", args.ida.script, "--dir", str(bin_dir), "--file", str(bin_path), "--output", str(pred_dir)], capture_output=True, timeout=60)
     return np.load(pred_path)
 
 def disassemble_ghidra(args, task):
@@ -293,11 +295,11 @@ def disassemble_ghidra(args, task):
     ret = subprocess.run(
         ["python", "-m", args.ghidra.script, "--dir", str(bin_dir), "--file", str(bin_path), "--output", str(pred_dir)],
         env=env,
-        capture_output=True
+        capture_output=True,
+        timeout=60
     )
     if ret.returncode != 0:
-        print(f"Error disassembling {task}: {ret.stderr}")
-        return None
+        raise Exception(f"Error disassembling {task}: {ret.stderr}")
     return np.load(pred_path)
 
 def disassemble_deepdi(args, task):
@@ -341,7 +343,7 @@ def disassemble_deepdi_batch(args, tasks):
         f"PYTHONPATH=. python3 /work/scripts/baselines/DeepDi/DeepDiLief.py --gpu --dir {bin_dir} --output '{np_path}' --key {args.deepdi.key} --process {args.process} --task /work/data/deepdi_tasks.json"
     ]
     
-    ret = subprocess.run(cmd, capture_output=True)
+    ret = subprocess.run(cmd, capture_output=False)
     if ret.returncode != 0:
         print(f"Error disassembling {tasks}: {ret.stderr}")
         exit(1)
@@ -361,6 +363,9 @@ def disassemble_ddisasm(args, task):
         "exec",
         "-it",
         args.ddisasm.container,
+        "timeout",
+        "--kill-after=5s",
+        "60s",
         "python3",
         "/work/scripts/baselines/ddisasm/batch_run.py",
         "--dir",
@@ -396,6 +401,9 @@ def eval_pred(arg):
         rel_path = file.relative_to(args.dir)
         bin_path = pathlib.Path(args.bin_dir) / rel_path.with_suffix("")
         output_path = pathlib.Path(output) / rel_path
+        failure_path = pathlib.Path(args.failure) / model / rel_path
+        if failure_path.exists():
+            return None
         if output_path.exists():
             data = np.load(output_path)
             p, r, t = data["precision"].item(), data["recall"].item(), data["total"].item()
@@ -403,7 +411,14 @@ def eval_pred(arg):
         data = np.load(file)
         match model:
             case "ida":
-                pred = disassemble_ida(args, rel_path)
+                try:
+                    pred = disassemble_ida(args, rel_path)
+                except Exception as e:
+                    print(f"Error disassembling {rel_path}: {e}")
+                    failure_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(failure_path, "w") as f:
+                        f.write(f"{e}")
+                    return None
             case "ghidra":
                 try:
                     pred = disassemble_ghidra(args, rel_path)
@@ -411,28 +426,38 @@ def eval_pred(arg):
                         return None
                 except Exception as e:
                     print(f"Error disassembling {rel_path}: {e}")
+                    failure_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(failure_path, "w") as f:
+                        f.write(f"{e}")
                     return None
             case "deepdi":
                 try:
                     pred = disassemble_deepdi(args, rel_path)
                     logits = pred["logits"]
-                    logits = -np.log((1 / (min(logits + 1e-8, 1))) - 1)
-                    logits = -np.log((1 / (min(logits + 1e-8, 1))) - 1)
                     pred = {"pred": pred["pred"], "logits": logits, "base_addr": pred["base_addr"]}
                 except Exception as e:
                     print(f"Error disassembling {rel_path}: {e}")
+                    failure_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(failure_path, "w") as f:
+                        f.write(f"{e}")
                     return None
             case "xda":
                 try:
                     pred = disassemble_xda(args, rel_path)
-                except:
-                    print(f"Error")
+                except Exception as e:
+                    print(f"Error disassembling {rel_path}: {e}")
+                    failure_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(failure_path, "w") as f:
+                        f.write(f"{e}")
                     return None
             case "ddisasm":
                 try:
                     instructions = disassemble_ddisasm(args, rel_path)
                 except Exception as e:
                     print(f"Error disassembling {rel_path}: {e}")
+                    failure_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(failure_path, "w") as f:
+                        f.write(f"{e}")
                     return None
                 points = np.array(instructions, dtype=np.uint64) - data["base_addr"]
                 points = points[(points > 0) & (points < len(data["text_array"]))]
