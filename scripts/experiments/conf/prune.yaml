@@ -17,28 +17,13 @@ models:
   - instruction_cpp_pangine_lite_none_64lw_64rw_16h_2l_prev000
   - instruction_cpp_pangine_sliding_all_64lw_64rw_16h_2l_prev000
   - instruction_cpp_pangine_sliding_none_64lw_64rw_16h_2l_prev000
-  # - ida
-  # - ghidra
-  # - deepdi
-  # - ddisasm
-  # - gt
-  # - xda
-  # - instruction_cpp_mix_all_lite_all_64lw_64rw_16h_2l_prev333
-  # - instruction_cpp_mix_all_lite_all_64lw_64rw_16h_2l_prev000
-  # - instruction_cpp_mix_all_lite_none_64lw_64rw_16h_2l_prev000
-  # - instruction_cpp_mix_all_sliding_all_64lw_64rw_16h_2l_prev000
-  # - instruction_cpp_mix_all_sliding_none_64lw_64rw_16h_2l_prev000
-  # - instruction_cpp_pangine_lite_none_64lw_64rw_16h_2l_prev000
-  # - instruction_cpp_pangine_lite_all_64lw_64rw_16h_2l_prev000
-  # - instruction_cpp_pangine_sliding_none_64lw_64rw_16h_2l_prev003
-  # - instruction_cpp_pangine_sliding_all_64lw_64rw_16h_2l_prev003
-  # - instruction_cpp_pangine_lite_all_64lw_64rw_16h_2l_prev000
-  # - instruction_cpp_pangine_lite_all_64lw_64rw_16h_2l_prev003
-  # - instruction_cpp_mix_all_lite_all_64lw_64rw_16h_2l_prev333
-  # - instruction_cpp_mix_all_lite_all_64lw_64rw_16h_2l_prev003
-  # - instruction_cpp_pangine_lite_all_64lw_64rw_16h_2l_prev00
-  # - instruction_cpp_pangine_lite_all_64lw_64rw_16h_4l_prev00
-  # - instruction_cpp_pangine_lite_all_64lw_64rw_16h_2l_prev33
+  - instruction_cpp_mix_all_lite_all_64lw_64rw_16h_2l_prev000
+  - ida
+  - ghidra
+  - deepdi
+  - ddisasm
+  - gt
+  - xda
 process: 24
 thread: 1
 model_id: null

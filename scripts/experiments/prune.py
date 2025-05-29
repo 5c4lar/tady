@@ -245,7 +245,7 @@ def average_before_prune(args):
             total_inst[opt] += total
         print(f"Model: {model}, dataset: {args.test_dataset}")
         for opt in total_inst:
-            print(f"Total: {total_inst[opt]}, Precision: {total_precision[opt]}, Recall: {total_recall[opt]}")
+            # print(f"Total: {total_inst[opt]}, Precision: {total_precision[opt]}, Recall: {total_recall[opt]}")
             average_precision[opt] = total_precision[opt] / total_inst[opt]
             average_recall[opt] = total_recall[opt] / total_inst[opt]
             F1 = 2 * average_precision[opt] * average_recall[opt] / (average_precision[opt] + average_recall[opt]) if (average_precision[opt] + average_recall[opt]) > 0 else 0

@@ -21,7 +21,7 @@ def configure(cfg):
         configure = f"{configure} {work_dir}"
     env["CFLAGS"] += " " + " ".join(cfg.opt.options)
     env["CXXFLAGS"] += " " + " ".join(cfg.opt.options)
-    res = subprocess.run(configure, cwd=work_dir, env=env, shell=True, capture_output=True)
+    res = subprocess.run(configure, cwd=work_dir, env=env, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     return res.returncode == 0
     
 def install(cfg):
@@ -33,17 +33,17 @@ def install(cfg):
     if cfg.project.type == "makefile":
         install_dir = pathlib.Path(cfg.install_dir)
         install_dir.mkdir(parents=True, exist_ok=True)
-        ret = subprocess.run(f"make -j{cfg.jobs} {cfg.project.target}", cwd=work_dir, env=env, shell=True, capture_output=True)
+        ret = subprocess.run(f"make -j{cfg.jobs} {cfg.project.target}", cwd=work_dir, env=env, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if ret.returncode != 0:
             print(ret.stderr)
             return False
-        subprocess.run(f"cp -r {work_dir}/* {cfg.install_dir}", cwd=work_dir, env=env, shell=True, capture_output=True)
+        subprocess.run(f"cp -r {work_dir}/* {cfg.install_dir}", cwd=work_dir, env=env, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     else:
-        ret = subprocess.run(f"make -j{cfg.jobs}", cwd=work_dir, env=env, shell=True, capture_output=True)
+        ret = subprocess.run(f"make -j{cfg.jobs}", cwd=work_dir, env=env, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if ret.returncode != 0:
             print(ret.stderr)
             return False
-        subprocess.run(f"make install -j{cfg.jobs}", cwd=work_dir, env=env, shell=True, capture_output=True)
+        subprocess.run(f"make install -j{cfg.jobs}", cwd=work_dir, env=env, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     shutil.rmtree(work_dir)
     
 @hydra.main(version_base=None, config_path="conf", config_name="compile.yaml")

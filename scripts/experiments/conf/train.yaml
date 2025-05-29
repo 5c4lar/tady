@@ -2,7 +2,7 @@ defaults:
   - _self_
   - connections: all
   - model: default
-  - dataset: mix
+  - dataset: pangine
 work_dir: ${hydra:runtime.cwd}
 dataset_dir: ${work_dir}/data/processed/
 processed: true
@@ -24,10 +24,8 @@ tags:
   - ${dataset.name}
   - ${model.attention}
   - ${connections.name}
-  # - ${model.overlapping_attn}
   - ${model.sliding_window[0]}lw
   - ${model.sliding_window[1]}rw
   - ${model.hidden_size}h
   - ${model.layers}l
-  # - ${model.successor_idx[0]}${model.successor_idx[1]}s
   - ${model.config_name}

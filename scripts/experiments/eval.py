@@ -1,7 +1,8 @@
 from collections import defaultdict
 import json
 import pathlib
-from multiprocessing.pool import ThreadPool as Pool
+# from multiprocessing.pool import ThreadPool as Pool
+from multiprocessing import Pool
 import grpc
 import hydra
 from omegaconf import DictConfig, OmegaConf
@@ -187,7 +188,9 @@ def batchify(byte_chunks: np.ndarray, masks: np.ndarray, batch_size: int):
     return batched_byte_chunks, batched_masks
 
 def eval_tady(arg):
-    args, file, output, model, stub = arg
+    args, file, output, model = arg
+    channel = grpc.insecure_channel(f"{args.host}:{args.port}")
+    stub = prediction_service_pb2_grpc.PredictionServiceStub(channel)
     if file.is_file():
         rel_path = file.relative_to(args.dir)
         output_path = pathlib.Path(output) / rel_path
@@ -196,6 +199,7 @@ def eval_tady(arg):
                 data = np.load(output_path)
             except Exception as e:
                 print(f"Error loading {output_path}: {e}")
+                output_path.unlink()
                 raise e
             p, r, t = data["precision"].item(), data["recall"].item(), data["total"].item()
             return str(rel_path.with_suffix("")), {"precision": p, "recall": r, "total": t}
@@ -261,11 +265,9 @@ def average_result(args, result):
 
 def process_tady(args, files, model):
     output = pathlib.Path(args.output) / model
-    channel = grpc.insecure_channel(f"{args.host}:{args.port}")
-    stub = prediction_service_pb2_grpc.PredictionServiceStub(channel)
     results = {}
     with Pool(args.process) as pool, tqdm(total=len(files)) as pbar:
-        for result in pool.imap_unordered(eval_tady, [(args, file, output, model, stub) for file in files]):
+        for result in pool.imap_unordered(eval_tady, [(args, file, output, model) for file in files]):
             if result is not None:
                 rel_path, value = result
                 results[rel_path] = value
@@ -343,21 +345,19 @@ def disassemble_deepdi_batch(args, tasks):
         f"PYTHONPATH=. python3 /work/scripts/baselines/DeepDi/DeepDiLief.py --gpu --dir {bin_dir} --output '{np_path}' --key {args.deepdi.key} --process {args.process} --task /work/data/deepdi_tasks.json"
     ]
     
-    ret = subprocess.run(cmd, capture_output=False)
+    ret = subprocess.run(cmd, capture_output=True)
     if ret.returncode != 0:
         print(f"Error disassembling {tasks}: {ret.stderr}")
         exit(1)
         return None
     
 def disassemble_ddisasm(args, task):
-    bin_dir = pathlib.Path("/work/data/bin_strip") / args.test_dataset
+    bin_dir = pathlib.Path("/work/data/bin") / args.test_dataset
     bin_path = bin_dir / task.with_suffix("")
-    json_dir = pathlib.Path("/work/data/pred_strip") / args.test_dataset / args.model_id
-    json_path_host = pathlib.Path(args.pred) / args.model_id / task.with_suffix(".json")
-    if json_path_host.exists():
-        with open(json_path_host, "r") as f:
-            instructions = json.load(f)["instructions"]
-            return instructions
+    npz_dir = pathlib.Path("/work/data/pred_strip") / args.test_dataset / args.model_id
+    npz_path_host = pathlib.Path(args.pred) / args.model_id / task
+    if npz_path_host.exists():
+        return np.load(npz_path_host)
     cmd = [
         "docker",
         "exec",
@@ -367,19 +367,19 @@ def disassemble_ddisasm(args, task):
         "--kill-after=5s",
         "60s",
         "python3",
-        "/work/scripts/baselines/ddisasm/batch_run.py",
+        f"/work/{args.ddisasm.script}",
         "--dir",
         str(bin_dir),
         "--file",
         str(bin_path),
         "--output",
-        str(json_dir)
+        str(npz_dir)
     ]
-    subprocess.run(cmd, capture_output=True, timeout=60)  # 1 minute timeout
-    assert json_path_host.exists()
-    with open(json_path_host, "r") as f:
-        instructions = json.load(f)["instructions"]
-    return instructions
+    ret = subprocess.run(cmd, capture_output=True, timeout=60)  # 1 minute timeout
+    if ret.returncode != 0:
+        print(f"Error disassembling {task}: {ret.stderr}")
+    assert npz_path_host.exists()
+    return np.load(npz_path_host)
 
 def disassemble_xda(args, task):
     bin_dir = pathlib.Path(args.bin_dir)
@@ -388,11 +388,15 @@ def disassemble_xda(args, task):
     pred_path = pred_dir / task.with_suffix(".npz")
     if pred_path.exists():
         return np.load(pred_path)
-    subprocess.run([
+    cmd = [
         "bash",
         "-c",
         f"conda run -n {args.xda.conda_env} python {args.xda.script} --gpu --file {bin_path} --dir {bin_dir} --output {pred_dir} --model_path {args.xda.model_path} --dict_path {args.xda.dict_path}",    
-    ],env={"PATH": os.environ["PATH"]},capture_output=True)
+    ]
+    ret = subprocess.run(cmd,env={"PATH": os.environ["PATH"]},capture_output=True, timeout=60)
+    if not pred_path.exists():
+        print(" ".join(cmd))
+        raise Exception(f"Error disassembling {task}: {ret.stderr}")
     return np.load(pred_path)
 
 def eval_pred(arg):
@@ -401,7 +405,8 @@ def eval_pred(arg):
         rel_path = file.relative_to(args.dir)
         bin_path = pathlib.Path(args.bin_dir) / rel_path.with_suffix("")
         output_path = pathlib.Path(output) / rel_path
-        failure_path = pathlib.Path(args.failure) / model / rel_path
+        failure_path = pathlib.Path(args.failure) / model / rel_path.with_suffix(".txt")
+        # print(f"Output path: {output_path}")
         if failure_path.exists():
             return None
         if output_path.exists():
@@ -452,18 +457,13 @@ def eval_pred(arg):
                     return None
             case "ddisasm":
                 try:
-                    instructions = disassemble_ddisasm(args, rel_path)
+                    pred = disassemble_ddisasm(args, rel_path)
                 except Exception as e:
                     print(f"Error disassembling {rel_path}: {e}")
                     failure_path.parent.mkdir(parents=True, exist_ok=True)
                     with open(failure_path, "w") as f:
                         f.write(f"{e}")
                     return None
-                points = np.array(instructions, dtype=np.uint64) - data["base_addr"]
-                points = points[(points > 0) & (points < len(data["text_array"]))]
-                pred = np.zeros(len(data["text_array"]), dtype=np.bool)
-                pred[points] = True
-                pred = {"pred": pred, "base_addr": data["base_addr"]}
             case _:
                 raise ValueError(f"Model {model} not supported")
         p = precision(pred["pred"], data["labels"], data["mask"])

@@ -7,7 +7,7 @@ import gtirb
 import capstone
 from io import BytesIO
 import tempfile
-cs = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
+
 import lief
 import numpy as np
 def load_text(file_path, section_name=None):
@@ -38,7 +38,11 @@ def load_text(file_path, section_name=None):
     print(f"{use_64_bit=}")
     return text_bytes, use_64_bit, base_addr
 
-def parse_gtirb(ir):
+def parse_gtirb(ir, use_64_bit=True):
+    if use_64_bit:
+        cs = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
+    else:
+        cs = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
     instructions = []
     function_entries = []
     functions = []
@@ -87,9 +91,9 @@ def process_file(args, file):
                 print(result.stderr)
                 exit(-1)
             ir = gtirb.IR.load_protobuf_file(gtirb_file)
-            results = parse_gtirb(ir)
             text_bytes, use_64_bit, base_addr = load_text(file, args.section_name)
-            pred = np.zeros(len(text_bytes), dtype=np.int32)
+            results = parse_gtirb(ir, use_64_bit)
+            pred = np.zeros(len(text_bytes), dtype=np.bool_)
             points = np.array(results["instructions"], dtype=np.uint64)
             points = points[(points >= base_addr) & (points < base_addr + len(text_bytes))]
             pred[points - base_addr] = True

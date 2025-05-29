@@ -8,7 +8,7 @@ batch_size: 64
 label: instruction
 test_dataset: llvm-test-suite-gtirb
 dir: ${work_dir}/data/gt_npz/${test_dataset}
-bin_dir: ${work_dir}/data/bin_strip/${test_dataset}
+bin_dir: ${work_dir}/data/bin/${test_dataset}
 pred: ${work_dir}/data/pred_strip/${test_dataset}
 output: ${work_dir}/data/eval_strip/${test_dataset}
 stats: ${work_dir}/data/stats/${test_dataset}
@@ -27,7 +27,6 @@ tags:
   - ${dataset.name}
   - ${model.attention}
   - ${connections.name}
-  # - ${model.overlapping_attn}
   - ${model.sliding_window[0]}lw
   - ${model.sliding_window[1]}rw
   - ${model.hidden_size}h
@@ -45,6 +44,7 @@ deepdi:
   key: aaf9bb2902c6d7eeaf5a8c7156ab77113a9d02db46e33edaf5f66dc53f8c7caa5c0d35a18ee8197250c06cad37eca340a47d79dee0ed266355999ec358a040f1
 ddisasm:
   container: ddisasm
+  script: scripts/baselines/ddisasm/batch_run_lief.py
 xda:
   script: scripts/baselines/XDA/batch_eval_lief.py
   conda_env: xda

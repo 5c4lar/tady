@@ -56,9 +56,10 @@ if __name__ == "__main__":
     parser.add_argument("--file", type=str, help="Path to the file to be disassembled")
     parser.add_argument("--output", type=str, help="Path to the output file")
     parser.add_argument("--dir", type=str, help="Use 64-bit mode")
-    parser.add_argument("--section_name", default=None, type=str, help="Section name")
+    parser.add_argument("--section_name", default=".text", type=str, help="Section name")
     args = parser.parse_args()
     result = disassemble(args.file, args.section_name)
+    print(f"Finished disassembling {args.file}")
     if args.output:
         rel_path = pathlib.Path(args.file).relative_to(args.dir)
         output_path = pathlib.Path(args.output) / (str(rel_path) + ".npz")

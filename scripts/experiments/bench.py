@@ -6,7 +6,7 @@ import grpc
 import hydra
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
-from tady.utils.loader import len_to_overlappings, chunk_data
+from tady.utils.loader import len_to_overlappings, chunk_data, load_text
 import tensorflow as tf
 from transformers import PreTrainedTokenizerFast
 from tensorflow_serving.apis import predict_pb2, prediction_service_pb2_grpc
@@ -99,22 +99,6 @@ def disassemble_batch(byte_chunks, use_64_bit):
         control_flows.append(control_flow)
     return np.array(instr_lens), np.array(control_flows)
 
-def tokenize_batch(byte_chunks, use_64_bit, tokenizer):
-    tokenizer = PreTrainedTokenizerFast(tokenizer_file=tokenizer, clean_up_tokenization_spaces=False)
-    disassembler = cpp.Disassembler()
-    instr_lens = []
-    connections = []
-    input_ids = []
-    for chunks, use_64 in zip(byte_chunks, use_64_bit):
-        instr_len, _, control_flow, _ = disassembler.superset_disasm(chunks, use_64)
-        overlappings = len_to_overlappings(instr_len)
-        asms = disassembler.disasm_to_str(chunks, use_64, 0)
-        res = tokenizer(asms, max_length=16, padding="max_length", truncation=True)
-        input_ids.append(np.array(res["input_ids"], dtype=np.int32))
-        instr_lens.append(np.array(res["attention_mask"]).sum(axis=-1, dtype=np.uint8))
-        connections.append(np.concatenate([control_flow, overlappings], axis=-1, dtype=np.int32))
-    return np.array(input_ids), np.array(instr_lens), np.array(connections)
-
 def time_disassemble_ida(args, bin_path):
     """Time IDA disassembly and return runtime in seconds"""
     pred_dir = pathlib.Path(args.pred) / "ida_runtime" 
@@ -188,40 +172,25 @@ def time_disassemble_deepdi(args, bin_path):
 
 def time_disassemble_ddisasm(args, bin_path):
     """Time ddisasm disassembly and return runtime in seconds"""
-    bin_dir_docker = pathlib.Path("/work/data/bin_strip") / args.test_dataset
+    bin_dir_docker = pathlib.Path("/work/data/bin") / args.test_dataset
     json_dir = pathlib.Path("/work/data/pred_strip") / args.test_dataset / "ddisasm_runtime"
-    print("Running ddisasm on", bin_path.name)
+    # print("Running ddisasm on", bin_path.name)
     bin_path_docker = pathlib.Path("/work/") / bin_path
     start_time = time.time()
     try:
         cmd = [
-            # "docker",
-            # "exec",
-            # "-it",
-            # args.ddisasm.container,
-            # "timeout",
-            # "--kill-after=5s",
-            # "60s",  # 5 minute timeout
-            # "python3",
-            # "/work/scripts/baselines/ddisasm/batch_run.py",
-            # "--dir",
-            # str(bin_dir_docker),
-            # "--file",
-            # str(bin_path),
-            # "--output",
-            # str(json_dir)
             "docker",
             "exec",
             "-it",
             args.ddisasm.container,
             "timeout",
             "--kill-after=5s",
-            "60s",  # 5 minute timeout
+            "130s",  # 5 minute timeout
             "ddisasm",
             str(bin_path_docker),
         ]
-        print(" ".join(cmd))
-        ret = subprocess.run(cmd, capture_output=True, timeout=310)  # Slightly longer than docker timeout
+        # print(" ".join(cmd))
+        ret = subprocess.run(cmd, capture_output=True, timeout=120)  # Slightly longer than docker timeout
         if ret.returncode != 0:
             return None, f"ddisasm failed: {ret.stderr.decode()}"
         end_time = time.time()
@@ -242,7 +211,7 @@ def time_disassemble_xda(args, bin_path):
             "bash",
             "-c",
             f"conda run -n {args.xda.conda_env} python {args.xda.script} --gpu --file {bin_path} --dir {bin_path.parent} --output {pred_dir} --model_path {args.xda.model_path} --dict_path {args.xda.dict_path}",    
-        ], env={"PATH": os.environ["PATH"]}, capture_output=True, timeout=120)
+        ], env={"PATH": os.environ["PATH"]}, capture_output=False, timeout=120)
         if ret.returncode != 0:
             return None, f"XDA failed: {ret.stderr.decode()}"
         end_time = time.time()
@@ -255,7 +224,7 @@ def time_disassemble_xda(args, bin_path):
 def time_disassemble_tady(args, bin_path, model, stub):
     """Time TADY disassembly and return runtime in seconds"""
     # Load the corresponding .npz file for this binary
-    task_name = str(bin_path).replace(f"data/bin_strip/{args.test_dataset}/", "")
+    task_name = str(bin_path).replace(f"data/bin/{args.test_dataset}/", "")
     data_path = pathlib.Path(args.dir) / (task_name + ".npz")
     print("Running TADY on", bin_path.name)
     if not data_path.exists():
@@ -290,14 +259,16 @@ def benchmark_single_disassembler(args, binaries, disasm_name, disasm_func, mode
     
     # Check which binaries need processing vs can use cache
     for bin_path in binaries:
-        cache_key = get_cache_key(disasm_name, bin_path.name)
+        cache_key = get_cache_key(disasm_name, bin_path)
         cached_result = cache_data.get(cache_key)
-        
+
         if is_cached_result_valid(cached_result, bin_path):
             # Use cached result (success or error)
+            text_array, _, _ = load_text(bin_path)
+            
             result = {
-                "binary": str(bin_path.name),
-                "size_bytes": bin_path.stat().st_size if bin_path.exists() else 0,
+                "binary": str(bin_path),
+                "size_bytes": len(text_array),
                 "disassembler": disasm_name,
                 "runtime": cached_result.get("runtime"),
                 "error": cached_result.get("error"),
@@ -310,6 +281,7 @@ def benchmark_single_disassembler(args, binaries, disasm_name, disasm_func, mode
             else:
                 cached_error_count += 1
         else:
+            print(f"  Cache miss for {disasm_name} on {bin_path}, processing...")
             # Need to process this binary
             binaries_to_process.append(bin_path)
     
@@ -359,10 +331,10 @@ def benchmark_single_disassembler(args, binaries, disasm_name, disasm_func, mode
 def run_single_disassembler_on_binary(arg):
     """Run a single disassembler on a single binary"""
     args, bin_path, disasm_name, disasm_func, model, stub = arg
-    
+    text_array, _, _,  = load_text(bin_path)
     result = {
-        "binary": str(bin_path.name),
-        "size_bytes": bin_path.stat().st_size if bin_path.exists() else 0,
+        "binary": str(bin_path),
+        "size_bytes": len(text_array),
         "disassembler": disasm_name,
         "runtime": None,
         "error": None
@@ -413,16 +385,16 @@ def process_runtime_benchmark(args, binaries, model=None):
     # Define all disassemblers to test
     disassemblers = []
     
-    # if hasattr(args, 'ida') and args.ida:
-    #     disassemblers.append(('ida', time_disassemble_ida))
-    # if hasattr(args, 'ghidra') and args.ghidra:
-    #     disassemblers.append(('ghidra', time_disassemble_ghidra))
+    if hasattr(args, 'ida') and args.ida:
+        disassemblers.append(('ida', time_disassemble_ida))
+    if hasattr(args, 'ghidra') and args.ghidra:
+        disassemblers.append(('ghidra', time_disassemble_ghidra))
     if hasattr(args, 'deepdi') and args.deepdi:
         disassemblers.append(('deepdi', time_disassemble_deepdi))
-    # if hasattr(args, 'ddisasm') and args.ddisasm:
-    #     disassemblers.append(('ddisasm', time_disassemble_ddisasm))
-    # if hasattr(args, 'xda') and args.xda:
-    #     disassemblers.append(('xda', time_disassemble_xda))
+    if hasattr(args, 'ddisasm') and args.ddisasm:
+        disassemblers.append(('ddisasm', time_disassemble_ddisasm))
+    if hasattr(args, 'xda') and args.xda:
+        disassemblers.append(('xda', time_disassemble_xda))
     if model and stub:
         print("Testing TADY")
         disassemblers.append(('tady', time_disassemble_tady))
@@ -536,6 +508,9 @@ def save_cache(cache_file, cache_data):
 def is_cached_result_valid(cache_entry, bin_path):
     """Check if cached result is still valid (for both success and error cases)"""
     if not cache_entry:
+        return False
+    
+    if cache_entry["error"] and not ("timeout" in cache_entry["error"] or "failed" in cache_entry["error"]):
         return False
     
     # Check if binary still exists and hash matches

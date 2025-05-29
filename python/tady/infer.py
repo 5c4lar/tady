@@ -101,7 +101,7 @@ def process_file(args, path, model, stub, disassembler):
         "pred": pred,
         "base_addr": np.array(base_addr, dtype=np.uint64),
     }
-    print(result)
+    # print(result)
     return result
 
 

@@ -75,17 +75,30 @@ def process_file(arg):
     error = np.load(file)
     has_error = False
     error_report = []
-    print(f"Processing {file}")
+    # print(f"Processing {file}")
     if len(error["dangling"]) > 0:
-        has_error = True
-        num_errors_per_file["dangling"] += len(error["dangling"])
-        error_by_category["dangling"] += 1
-        error_report.append(f"DANGLING ERROR: {rel_path.parent}: {len(error['dangling'])}")
+
+        has_dangling = False
+        currents = error["dangling"].astype(np.uint64)
+        for current in currents:
+            current_inst_len = instr_len[current - base_addr]
+            current_inst = disassembler.inst_str(text_array[current - base_addr:current - base_addr + current_inst_len], use_64_bit.item(), int(current)).lstrip()
+            if not current_inst.startswith("nop"):
+                has_dangling = True
+                num_errors_per_file["dangling"] += 1
+                error_report.append(f"DANGLING ERROR: {rel_path.parent}: 0x{current:x}[{current_inst_len}] {current_inst}")
+        if has_dangling:
+            has_error = True
+            error_by_category["dangling"] += 1
     if len(error["exclusive"]) > 0:
         has_error = True
         num_errors_per_file["exclusive"] += len(error["exclusive"])
         error_by_category["exclusive"] += 1
-        error_report.append(f"EXCLUSIVE ERROR: {rel_path.parent}: {len(error['exclusive'])}")
+        currents = error["exclusive"].astype(np.uint64)
+        for current in currents:
+            current_inst_len = instr_len[current - base_addr]
+            current_inst = disassembler.inst_str(text_array[current - base_addr:current - base_addr + current_inst_len], use_64_bit.item(), int(current)).lstrip()
+            error_report.append(f"EXCLUSIVE ERROR: {rel_path.parent}: 0x{current:x}[{current_inst_len}] {current_inst}")
     if len(error["coexist"]) > 0:
         pdt = get_pdt(file, successors, flow_kind > 1)
         absolute_ipdom = pdt.get_absolute_ipdom()
@@ -101,11 +114,11 @@ def process_file(arg):
             current_inst = disassembler.inst_str(text_array[current - base_addr:current - base_addr + current_inst_len], use_64_bit.item(), int(current)).lstrip()
             addr = int(base_addr) + int(ipdom)
             inst_str = disassembler.inst_str(text_array[ipdom:ipdom+inst_len], use_64_bit.item(), addr).lstrip()
-            if inst_str.startswith("nop"): # or inst_str.startswith("lea"):
+            if inst_str.startswith("nop") or current_inst.startswith("nop"): # or inst_str.startswith("lea"):
                 error_nop = True
                 num_errors_per_file["nop"] += 1
                 error_report.append(f"NOP ERROR: {rel_path.parent}: 0x{current:x}[{current_inst_len}]-0x{addr:x}[{inst_len}] {current_inst} {inst_str}")
-            elif current_inst.startswith("lock"):
+            elif current_inst.startswith("lock") or current_inst.startswith("wait"):
                 pass
             else:
                 has_coexist = True
@@ -138,12 +151,12 @@ def main(args: DictConfig):
                     print(f"Total files: {results['total_files']}")
                     # results["error_by_category"]["coexist"] += results["error_by_category"]["nop"]
                     # results["error_by_category"].pop("nop")
-                    error_rate_per_bytes, error_rate_by_category, error_rate, total_files = error_stat(results)
+                    error_rate_per_bytes, error_rate_by_category, num_errors, total_files = error_stat(results)
                     print(f"Error count by category: {results['error_by_category']}")
                     print(f"Errors total: {sum(results['error_by_category'].values())}")
                     print(f"Error rate per bytes: {error_rate_per_bytes}")
                     print(f"Error rate by category: {error_rate_by_category}")
-                    print(f"Error rate: {error_rate}")
+                    print(f"Error num: {num_errors}")
                     all_stats[f"{dataset}_{model}"] = result_summary(results)
                     continue
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -165,7 +178,8 @@ def main(args: DictConfig):
             with Pool(args.process) as pool, tqdm(total = len(files)) as pbar:
                 for result in pool.imap_unordered(process_file, [(args, file, dataset) for file in files]):
                     path, size, num_errors_per_file, error_by_category, error_report, has_error = result
-                    f.write("\n".join(error_report) + "\n")
+                    if error_report:
+                        f.write("\n".join(error_report) + "\n")
                     all_errors[path] = num_errors_per_file
                     all_sizes[path] = size
                     for category, count in num_errors_per_file.items():
@@ -189,10 +203,10 @@ def main(args: DictConfig):
             }
             with open(json_path, "w") as f:
                 json.dump(results, f, indent=4)
-            error_rate_per_bytes, error_rate_by_category, error_rate, total_files = error_stat(results)
+            error_rate_per_bytes, error_rate_by_category, num_errors, total_files = error_stat(results)
             print(f"Error rate per bytes: {error_rate_per_bytes}")
             print(f"Error rate by category: {error_rate_by_category}")
-            print(f"Error rate: {error_rate}")
+            print(f"Error num: {num_errors}")
             f.close()
             all_stats[f"{dataset}_{model}"] = result_summary(results)
     with open(pathlib.Path("data/error") / "error_stat.json", "w") as f:
