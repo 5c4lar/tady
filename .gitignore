@@ -13,7 +13,20 @@ CMakeUserPresets.json
 build/
 __pycache__/
 *.egg-info
-data/
+data/bin
+data/eval_strip
+data/prune
+data/failure
+data/gt_npz
+data/pred_strip
+data/processed
+data/prune
+data/stats
+data/tools
+data/download
+data/error
+!data/download/download_dataset.sh
+data/deepdi_tasks.json
 models/
 outputs/
 wandb/
@@ -22,3 +35,4 @@ archive/
 uv.lock
 multirun/
 artifacts/
+*.npz

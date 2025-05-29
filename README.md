@@ -217,5 +217,57 @@ ngine_lite_all_64lw_64rw_16h_2l_prev000 --batch_size 32 --disassembler cpp --dir
 ```
 Benchmark PDT
 ```bash
+# Prepare the scores for Pruning
+uv run scripts/experiments/batch_run.py --files artifacts/selected_samples.json --dir data/bin --model instruction_cpp_pangine_lite_all_64lw_64rw_16h_2l_prev000 --output_dir artifacts/scores
+uv run scripts/ablation/prune_efficiency.py --samples artifacts/selected_samples.json --output artifacts/prune --model_id=instruction_cpp_pangine_lite_all_64lw_64rw_16h_2l_prev000 # This generate the data for Figure 10, 11, which is artifacts/prune_data_figure10_11.json
+```
+### VMProtect
+Generate the npz format ground truth for the binary with the given label.
+```bash
+uv run data/obf/manual_labels_to_gt.py --labels data/obf/labels.txt --bin data/obf/TestApp.vmp.exe
+```
+The target is at .vmp0 section, we specify that manually for the disassemblers.
 
+Tady
+```bash
+# This shows an example that our trained model can extrapolate to arbitrary length, though trained only on 8192
+# Tady
+uv run -m tady.infer --path data/obf/TestApp.vmp.exe --model instruction_cpp_pangine_lite_all_64lw_64rw_16h_2l_prev000 --section_name .vmp0 --output_path data/obf/tady/TestApp.vmp.exe.npz --seq_len 569038 --batch_size 1
+# TadyA
+uv run -m tady.infer --path data/obf/TestApp.vmp.exe --model instruction_cpp_mix_all_lite_all_64lw_64rw_16h_2l_prev000 --section_name .vmp0 --output_path data/obf/tadya/TestApp.vmp.exe.npz --seq_len 569038 --batch_size 1
+```
+
+DeepDi
+
+```bash
+docker exec -it deepdi /bin/bash -c ' PYTHONPATH=. python3 /work/scripts/baselines/DeepDi/DeepDiLief.py --gpu --file /work/data/obf/TestApp.vmp.exe --output /work/data/obf/deepdi --dir /work/data/obf --key aaf9bb2902c6d7eeaf5a8c7156ab77113a9d02db46e33edaf5f66dc53f8c7caa5c0d35a18ee8197250c06cad37eca340a47d79dee0ed266355999ec358a040f1 --process 1 --section .vmp0'
+```
+
+XDA
+
+```bash
+conda run -n xda python scripts/baselines/XDA/batch_eval_lief.py --gpu --file data/obf/TestApp.vmp.exe --output data/obf/xda/ --dir data/obf --model_path scripts/baselines/XDA/checkpoints/finetune_instbound_new_dataset --dict_path scripts/baselines/XDA/xda_dataset/processed --section_name .vmp0
+```
+
+ddisasm
+
+```bash
+docker exec -it ddisasm python3 /work/scripts/baselines/ddisasm/batch_run_lief.py --dir /work/data/obf --file /work/data/obf/TestApp.vmp.exe --output /work/data/obf/ddisasm --section_name .vmp0
+```
+
+IDA pro
+```bash
+ uv run -m scripts.baselines.ida.batch_run --dir data/obf --file data/obf/TestApp.vmp.exe --output data/obf/ida --section_name .vmp0
+```
+
+Ghidra
+```bash
+GHIDRA_INSTALL_DIR=data/tools/ghidra uv run -m scripts.baselines.ghidra.pyghidra_disassemble --file data/obf/TestApp.vmp.exe --output data/obf/ghidra --section_name .vmp0 --dir data/obf
+```
+
+To evaluate the results
+```bash
+uv run data/obf/eval.py --gt data/obf/TestApp.vmp.exe.npz --pred data/obf/{disassembler}/TestApp.vmp.exe.npz
+# After prune
+uv run -m tady.prune --gt data/obf/TestApp.vmp.exe.npz --pred data/obf/{disassembler}/TestApp.vmp.exe.npz
 ```
