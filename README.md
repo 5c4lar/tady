@@ -21,7 +21,10 @@ docker build -t tady -f docker/Dockerfile .
 ```
 ## Datasets
 
-Either download our processed datasets or rerun our the preprocessing steps
+Either download our processed datasets or rerun our the preprocessing steps.
+
+We provide the binaries in `bin.tar.gz`, which should be decompressed to `data/bin`, and the ground truth data `gt_npz.tar.gz`, which should be decompressed to `data/gt_npz`. with these two directory, download the original datasets is not necessary.
+
 ### Download
 
 ### To reproduce the datasets from their provider
@@ -107,6 +110,9 @@ uv run scripts/experiments/train.py -m dataset=pangine epoch=1 process=16 model.
 uv run scripts/experiments/train.py -m dataset=mix_all epoch=1 process=16
 ```
 ## Eval
+The data for the tables are provided in `artifacts.tar.gz`, which can be reproduced with the commands listed below.
+
+### Tady
 Export the model
 ```bash
 # Export model for Tady and ablations
@@ -133,6 +139,9 @@ Stop the tensorflow-serving after testing to free the GPU Memory.
 docker stop tensorflow-serving
 ```
 ### Baselines
+
+Reproducing the disassembly results is time consuming for those baselines, we provide the `eval_strip_baselines.tar.gz` which stores the disassemble results of the baselines. It should be decompressed to `data/eval_strip`. Of course, feel free to reproduce the results if you have enough resources.
+
 **ddisasm**
 ```bash
 # Build the docker for ddisasm baseline, add numpy dependency
@@ -157,6 +166,7 @@ uv pip install -f data/tools/ghidra/docs/ghidra_stubs/ ghidra-stubs
 uv run scripts/experiments/eval.py -m test_dataset=pangine,assemblage,x86_dataset,obf-benchmark,quarks model_id=ghidra process=24 num_samples=1000
 ```
 **ida**
+
 Make sure to have IDA pro 9.1 installed on your machine
 ```bash
 uv pip install $PATH_TO_IDA_PRO/idalib/python/
@@ -164,6 +174,12 @@ uv run $PATH_TO_IDA_PRO/idalib/python/py-activate-idalib.py
 uv run scripts/experiments/eval.py -m test_dataset=pangine,assemblage,x86_dataset,obf-benchmark,quarks model_id=ida process=24 num_samples=1000
 ```
 **xda**
+
+Download xda_model_reproduce.tar.gz in artifact and decompress it to scripts/baselines/XDA
+```bash
+tar -zxvf xda_model_reproduce.tar.gz -C scripts/baselines/XDA
+```
+Prepare the environment
 ```bash
 git clone https://github.com/CUMLSec/XDA.git && cd XDA
 conda create -n xda python=3.7 numpy scipy scikit-learn colorama
@@ -171,6 +187,9 @@ conda activate xda
 conda install pytorch torchvision torchaudio cudatoolkit=11.0 -c pytorch
 pip install --editable .
 pip install lief
+```
+eval
+```bash
 # Back to project root
 uv run scripts/experiments/eval.py -m test_dataset=pangine,assemblage,x86_dataset,obf-benchmark,quarks model_id=xda process=24 num_samples=1000
 ```
