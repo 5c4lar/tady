@@ -36,3 +36,4 @@ uv.lock
 multirun/
 artifacts/
 *.npz
+*.tar.gz
