@@ -33,7 +33,7 @@ Download raw datasets
 bash data/download/download_dataset.sh
 ```
 
-build rw dataset
+build rw dataset, the source files are given in `source.tar.gz`. Decompress it to `data/source`.
 ```
 docker run -it -v (pwd):/work -w /work --name gt bin2415/x86_gt:0.1 /bin/bash
 # Inside Docker
