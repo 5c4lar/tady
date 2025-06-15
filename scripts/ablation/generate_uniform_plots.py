@@ -4,23 +4,27 @@ import numpy as np
 from collections import defaultdict
 from scipy import stats
 import pathlib
+import matplotlib
+
+matplotlib.rcParams['pdf.fonttype'] = 42
+matplotlib.rcParams['ps.fonttype'] = 42
 
 # Consistent Matplotlib styling
 FIGURE_DPI = 300
-BASE_FONT_SIZE = 12
+BASE_FONT_SIZE = 13
 LINE_WIDTH = 1.5
 MARKER_SIZE = 4
 
 plt.rcParams.update({
     'font.size': BASE_FONT_SIZE,
     'axes.labelsize': BASE_FONT_SIZE,
-    'xtick.labelsize': BASE_FONT_SIZE - 1,
-    'ytick.labelsize': BASE_FONT_SIZE - 1,
-    'legend.fontsize': BASE_FONT_SIZE - 1,
-    'figure.titlesize': BASE_FONT_SIZE + 2, # Not used as titles are removed
+    'xtick.labelsize': BASE_FONT_SIZE,
+    'ytick.labelsize': BASE_FONT_SIZE,
+    'legend.fontsize': BASE_FONT_SIZE,
+    # 'figure.titlesize': BASE_FONT_SIZE + 2, # Not used as titles are removed
     'lines.linewidth': LINE_WIDTH,
     'lines.markersize': MARKER_SIZE,
-    'font.family': 'serif', # Using a common serif font
+    'font.family': "Times New Roman", # Using Times New Roman
     'axes.grid': True,
     'grid.alpha': 0.3,
     'grid.linestyle': '--'
@@ -97,7 +101,7 @@ def plot_disassembler_runtime_scaling(disassemblers_data, linear_scale=False, ou
                    color=color,
                    marker=marker,
                    label=disasm_name.upper(),
-                   alpha=0.7,
+                   alpha=1.0,
                    s=30,
                    edgecolors='white',
                    linewidth=0.5)
@@ -116,13 +120,13 @@ def plot_disassembler_runtime_scaling(disassemblers_data, linear_scale=False, ou
                     trend_runtimes = p(size_range_mb)
                     valid_trend = trend_runtimes >= 0
                     plt.plot(size_range_mb[valid_trend], trend_runtimes[valid_trend],
-                            color=color, linestyle='--', alpha=0.6) # No label
+                            color=color, linestyle='--', alpha=1.0) # No label
 
                 except np.linalg.LinAlgError: # Fallback for singular matrix
                      slope, intercept = np.polyfit(sorted_sizes_mb, sorted_runtimes, 1)
                      size_range_mb = np.linspace(sorted_sizes_mb.min(), sorted_sizes_mb.max(), 100)
                      trend_runtimes = slope * size_range_mb + intercept
-                     plt.plot(size_range_mb, trend_runtimes, color=color, linestyle='--', alpha=0.6) # No label
+                     plt.plot(size_range_mb, trend_runtimes, color=color, linestyle='--', alpha=1.0) # No label
 
             else: # Log scale
                 # Filter out non-positive values before log transformation
@@ -141,7 +145,7 @@ def plot_disassembler_runtime_scaling(disassemblers_data, linear_scale=False, ou
                             size_range_log_mb = np.logspace(min_log_size_mb, max_log_size_mb, 100)
                             trend_runtimes_log = 10**(slope * np.log10(size_range_log_mb) + intercept)
                             plt.plot(size_range_log_mb, trend_runtimes_log,
-                                    color=color, linestyle='--', alpha=0.6) # No label
+                                    color=color, linestyle='--', alpha=1.0) # No label
 
     plt.xlabel('Size of code bytes (MB)')
     plt.ylabel('Runtime (seconds)')
@@ -153,7 +157,7 @@ def plot_disassembler_runtime_scaling(disassemblers_data, linear_scale=False, ou
         plt.xscale('log')
         plt.yscale('log')
         
-    plt.legend(loc='upper left', frameon=True, fancybox=True, shadow=False, ncol=2)
+    plt.legend(loc='upper right', frameon=True, fancybox=True, shadow=False, ncol=1)
     plt.tight_layout(pad=0.5) # Add a little padding
 
     filename_base = f"{output_prefix}figure8_disassembler_runtime_scaling{'_linear' if linear_scale else '_log'}{output_suffix}"
@@ -188,9 +192,9 @@ def plot_model_efficiency(benchmark_results, output_suffix="", output_prefix="")
     preprocess_times = np.array(preprocess_times)
     inference_times = np.array(inference_times)
 
-    plt.scatter(file_sizes_mb, total_times, alpha=0.6, label='Total Time', marker='o')
-    plt.scatter(file_sizes_mb, inference_times, alpha=0.6, label='Inference Time', marker='s')
-    plt.scatter(file_sizes_mb, preprocess_times, alpha=0.6, label='Preprocess Time', marker='^')
+    plt.scatter(file_sizes_mb, total_times, alpha=1.0, label='Total Time', marker='o')
+    plt.scatter(file_sizes_mb, inference_times, alpha=1.0, label='Inference Time', marker='s')
+    plt.scatter(file_sizes_mb, preprocess_times, alpha=1.0, label='Preprocess Time', marker='^')
     
     # Trend lines
     if len(file_sizes_mb) > 1:
@@ -198,25 +202,25 @@ def plot_model_efficiency(benchmark_results, output_suffix="", output_prefix="")
         
         if len(unique_sizes_mb) > 1:
             x_line = np.linspace(min(unique_sizes_mb), max(unique_sizes_mb), 100)
-            text_y_start_ax_coord = 0.75 # Start y-position for text in axes coordinates
-            text_y_offset_ax_coord = 0.06 # Vertical offset for subsequent lines of text
+            text_y_start_ax_coord = 0.60 # Start y-position for text in axes coordinates
+            text_y_offset_ax_coord = 0.10 # Vertical offset for subsequent lines of text
 
             for i, (data, color, style, data_label) in enumerate(zip(
                 [total_times, inference_times, preprocess_times],
-                ['blue', 'orange', 'green'],
+                ['tab:blue', 'tab:orange', 'tab:green'],
                 ['-', '--', ':'],
                 ['Total Time', 'Inference Time', 'Preprocess Time']
             )):
                 if len(unique_sizes_mb) >= 2 : # Need at least 2 unique points for polyfit deg 1
                     z = np.polyfit(unique_sizes_mb, data[unique_indices], 1)
                     p = np.poly1d(z)
-                    plt.plot(x_line, p(x_line), linestyle=style, color=color, alpha=0.7) # No label
+                    plt.plot(x_line, p(x_line), linestyle=style, color=color, alpha=1.0) # No label
                     # Add equation text in upper left, using axes coordinates
-                    eq_text = f"{data_label}: y = {z[0]:.2f}x + {z[1]:.2f}"
+                    eq_text = f"y = {z[0]:.2f}x"
                     current_text_y_ax_coord = text_y_start_ax_coord - (i * text_y_offset_ax_coord)
                     plt.text(0.02, current_text_y_ax_coord, eq_text, 
                              transform=plt.gca().transAxes, 
-                             fontsize=BASE_FONT_SIZE-3, # Slightly smaller to fit more lines if needed
+                             fontsize=BASE_FONT_SIZE, # Slightly smaller to fit more lines if needed
                              color=color, 
                              ha='left', va='top')
 
@@ -241,33 +245,33 @@ def plot_pruning_time_vs_size(prune_data, output_suffix="", output_prefix=""):
     prune_times = np.array(prune_data['prune_times'])
     error_times = np.array(prune_data['error_times'])
 
-    plt.scatter(sizes_mb, disassemble_times, label="Disassembly", marker='o')
     plt.scatter(sizes_mb, pdt_times, label="PDT Construction", marker='s')
     plt.scatter(sizes_mb, prune_times, label="Pruning", marker='^')
     plt.scatter(sizes_mb, error_times, label="Error Calculation", marker='D')
+    plt.scatter(sizes_mb, disassemble_times, label="Disassembly", marker='o')
     
     fit_x = np.linspace(min(sizes_mb), max(sizes_mb), 100)
-    text_y_start_ax_coord_fig10 = 0.66
-    text_y_offset_ax_coord_fig10 = 0.06
+    text_y_start_ax_coord_fig10 = 0.54
+    text_y_offset_ax_coord_fig10 = 0.10
     
     for i, (data, color, style, data_label) in enumerate(zip(
-        [disassemble_times, pdt_times, prune_times, error_times],
+        [pdt_times, prune_times, error_times, disassemble_times],
         ['tab:blue', 'tab:orange', 'tab:green', 'tab:red'],
         ['-', '--', ':', '-.'],
-        ["Disassembly", "PDT Construction", "Pruning", "Error Calculation"]
+        ["PDT Construction", "Pruning", "Error Calculation", "Disassembly"]
     )):
         if len(sizes_mb) > 1:
             unique_sizes_mb, unique_indices = np.unique(sizes_mb, return_index=True)
             if len(unique_sizes_mb) > 1:
                  z = np.polyfit(unique_sizes_mb, data[unique_indices], 1)
                  p = np.poly1d(z)
-                 plt.plot(fit_x, p(fit_x), color=color, linestyle=style, alpha=0.7) # No label
+                 plt.plot(fit_x, p(fit_x), color=color, linestyle=style, alpha=1.0) # No label
                  # Add equation text in upper left, using axes coordinates
-                 eq_text = f"{data_label}: y = {z[0]:.2f}x + {z[1]:.2f}"
+                 eq_text = f"y = {z[0]:.2f}x"
                  current_text_y_ax_coord = text_y_start_ax_coord_fig10 - (i * text_y_offset_ax_coord_fig10)
                  plt.text(0.02, current_text_y_ax_coord, eq_text, 
                           transform=plt.gca().transAxes, 
-                          fontsize=BASE_FONT_SIZE-3, 
+                          fontsize=BASE_FONT_SIZE, 
                           color=color, 
                           ha='left', va='top')
             
@@ -297,7 +301,7 @@ def plot_pruning_peak_memory(prune_data, output_suffix="", output_prefix=""):
             fit_x_memory = np.linspace(min(unique_sizes_mb), max(unique_sizes_mb), 100)
             z = np.polyfit(unique_sizes_mb, memories[unique_indices], 1)
             p = np.poly1d(z)
-            plt.plot(fit_x_memory, p(fit_x_memory), color='tab:blue', linestyle='--', alpha=0.7) # No label
+            plt.plot(fit_x_memory, p(fit_x_memory), color='tab:blue', linestyle='--', alpha=1.0) # No label
 
     plt.xlabel("Size of code bytes (MB)")
     plt.ylabel("Peak Memory (MB)")

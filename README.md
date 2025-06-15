@@ -1,5 +1,8 @@
-# tady
-Tady: A Neural Disassembler without Consistency Violations
+# Tady
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15541311.svg)](https://doi.org/10.5281/zenodo.15541311)
+
+Tady: A Neural Disassembler without Structural Constraint Violations
 
 ## Environment
 Run the experiments either on host or in docker. Since some of the baselines (DeepDi and ddisasm) are also run in docker, we recommand setting up the environment
@@ -231,8 +234,7 @@ uv run scripts/experiments/bench.py process=1 dataset=pangine test_dataset=x86_d
 ```
 Benchmark Tady
 ```bash
-uv run scripts/ablation/model_efficiency.py --samples artifacts/selected_samples.json --model_id instruction_cpp_pa
-ngine_lite_all_64lw_64rw_16h_2l_prev000 --batch_size 32 --disassembler cpp --dir (pwd) --output artifacts/benchmark_results.json --plot artifacts/time_vs_size_cpp.pdf # This generate the data for drawing Figure 9, which is artifacts/benchmark_results_figure9.json
+uv run scripts/ablation/model_efficiency.py --samples artifacts/selected_samples.json --model_id instruction_cpp_pangine_lite_all_64lw_64rw_16h_2l_prev000 --batch_size 32 --disassembler cpp --dir (pwd) --output artifacts/benchmark_results.json --plot artifacts/time_vs_size_cpp.pdf # This generate the data for drawing Figure 9, which is artifacts/benchmark_results_figure9.json
 ```
 Benchmark PDT
 ```bash
