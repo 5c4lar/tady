@@ -1,6 +1,7 @@
 # Tady
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15541311.svg)](https://doi.org/10.5281/zenodo.15541311)
+[![arXiv](https://img.shields.io/badge/arXiv-2506.13323-b31b1b.svg?style=flat)](https://arxiv.org/abs/2506.13323)
 
 Tady: A Neural Disassembler without Structural Constraint Violations
 
