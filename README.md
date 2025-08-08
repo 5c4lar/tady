@@ -39,7 +39,7 @@ bash data/download/download_dataset.sh
 
 build rw dataset, the source files are given in `source.tar.gz`. Decompress it to `data/source`.
 ```
-docker run -it -v (pwd):/work -w /work --name gt bin2415/x86_gt:0.1 /bin/bash
+docker run -it -v $PWD:/work -w /work --name gt bin2415/x86_gt:0.1 /bin/bash
 # Inside Docker
 python3 -m pip install hydra-core hydra-joblib-launcher
 python3 scripts/dataset/sok/compile.py -m project=curl,diffutils,gmp,ImageMagick,libmicrohttpd,libtomcrypt,openssl,putty,sqlite,zlib compiler=clang32 opt=O0,O1,O2,O3
@@ -113,17 +113,19 @@ uv run scripts/experiments/train.py -m dataset=pangine epoch=1 process=16 model.
 # Train the TadyA Model the same architecture with Tady but on a mixure of the dataset setting scripts/experiments/conf/dataset/mix_all.yaml
 uv run scripts/experiments/train.py -m dataset=mix_all epoch=1 process=16
 ```
-## Eval
-The data for the tables are provided in `artifacts.tar.gz`, which can be reproduced with the commands listed below.
 
-### Tady
-Export the model
+Export the models to TF SavedModel format for serving
 ```bash
 # Export model for Tady and ablations
 uv run scripts/experiments/export.py -m dataset=pangine  model.attention=lite,sliding connections=all,none
 # Export model for TadyA
 uv run scripts/experiments/export.py dataset=mix_all
 ```
+
+## Eval
+The data for the tables are provided in `artifacts.tar.gz`, which can be reproduced with the commands listed below.
+
+### Tady
 
 Serve the models
 ```bash
@@ -158,7 +160,7 @@ uv run scripts/experiments/eval.py -m test_dataset=pangine,assemblage,x86_datase
 git clone https://github.com/DeepBitsTechnology/DeepDi.git
 docker build -t deepdi -f DeepDi/Dockerfile-gpu DeepDi
 docker build -t baseline_deepdi scripts/baselines/DeepDi
-docker run -it -d -v (pwd):/work --gpus all --name deepdi baseline_deepdi /bin/bash
+docker run -it -d -v $PWD:/work --gpus all --name deepdi baseline_deepdi /bin/bash
 uv run scripts/experiments/eval.py -m test_dataset=pangine,assemblage,x86_dataset,obf-benchmark,quarks model_id=deepdi process=1 num_samples=1000
 ```
 **ghidra**
@@ -235,7 +237,7 @@ uv run scripts/experiments/bench.py process=1 dataset=pangine test_dataset=x86_d
 ```
 Benchmark Tady
 ```bash
-uv run scripts/ablation/model_efficiency.py --samples artifacts/selected_samples.json --model_id instruction_cpp_pangine_lite_all_64lw_64rw_16h_2l_prev000 --batch_size 32 --disassembler cpp --dir (pwd) --output artifacts/benchmark_results.json --plot artifacts/time_vs_size_cpp.pdf # This generate the data for drawing Figure 9, which is artifacts/benchmark_results_figure9.json
+uv run scripts/ablation/model_efficiency.py --samples artifacts/selected_samples.json --model_id instruction_cpp_pangine_lite_all_64lw_64rw_16h_2l_prev000 --batch_size 32 --disassembler cpp --dir $PWD --output artifacts/benchmark_results.json --plot artifacts/time_vs_size_cpp.pdf # This generate the data for drawing Figure 9, which is artifacts/benchmark_results_figure9.json
 ```
 Benchmark PDT
 ```bash
@@ -292,4 +294,19 @@ To evaluate the results
 uv run data/obf/eval.py --gt data/obf/TestApp.vmp.exe.npz --pred data/obf/{disassembler}/TestApp.vmp.exe.npz
 # After prune
 uv run -m tady.prune --gt data/obf/TestApp.vmp.exe.npz --pred data/obf/{disassembler}/TestApp.vmp.exe.npz
+```
+
+## Cite
+
+```
+@inproceedings{qin2025tady,
+  author       = {Siliang Qin and Fengrui Yang and Hao Wang and Bolun Zhang and Zeyu Gao and Chao Zhang and Kai Chen},
+  title        = {Tady: A Neural Disassembler without Structural Constraint Violations},
+  publisher    = {USENIX Association},
+  booktitle    = {Proceedings of the 34th USENIX Conference on Security Symposium},
+  year         = {2025},
+  series       = {SEC '25},
+  address      = {USA},
+  location     = {Seattle, WA, USA},
+}
 ```
