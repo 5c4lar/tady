@@ -28,7 +28,7 @@ dependencies = [
     "hydra-core",
     "hydra-joblib-launcher",
     "jax[cuda12]",
-    "flax[all]",
+    "flax",
     "grain",
     "lief",
     "datasets",
