@@ -24,8 +24,10 @@ data/prune
 data/stats
 data/tools
 data/download
-data/error
+!data/download/
+data/download/*
 !data/download/download_dataset.sh
+data/error
 data/deepdi_tasks.json
 models/
 outputs/
